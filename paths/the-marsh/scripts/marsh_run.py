@@ -70,22 +70,16 @@ async def _build_engine(args) -> HuntEngine:
         if engine.bankroll_native <= 0:
             engine.kit_up(args.kit if args.kit else config.hunt_size * 3)
         return engine
-    from engine.executor import LiveExecutor  # noqa: PLC0415
-    from engine.feed import WayfinderFeed  # noqa: PLC0415
-
-    satchel = os.environ.get("MARSH_SATCHEL_ADDRESS")
-    if not satchel:
-        print("No satchel configured (MARSH_SATCHEL_ADDRESS). "
-              "Kit up first, or run --ghost for the practice range.")
-        raise SystemExit(1)
-    feed = WayfinderFeed()
-    executor = LiveExecutor(satchel, signing_callback=None,
-                            chain_ids={"solana": 792703809})
-    engine = HuntEngine(config, feed, executor, log)
-    engine.restore_from_log()
-    if args.size is not None:
-        engine.update_config(hunt_size=args.size)
-    return engine
+    # Live, fund-moving runs are host-mediated by design: LiveExecutor
+    # refuses to exist without the signing callback that only the SDK
+    # strategy runner injects after the hunter authorizes live trading.
+    # This standalone script never has that callback, so it never has
+    # trade authority — it can only offer the practice range.
+    print("Live hunts run under the host runner, which holds the "
+          "satchel signer the hunter authorized — this script has no "
+          "trade authority by design. Use --ghost for the practice "
+          "range or --live-feed to scout the real marsh without funds.")
+    raise SystemExit(1)
 
 
 async def cmd_hunt(args) -> None:

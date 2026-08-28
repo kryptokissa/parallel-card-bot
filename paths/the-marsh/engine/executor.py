@@ -65,11 +65,26 @@ class SimExecutor:
 
 
 class LiveExecutor:
-    """Live execution through BRAP from the satchel wallet only."""
+    """Live execution through BRAP from the satchel wallet only.
+
+    Host mediation is mandatory, not conventional: this class cannot be
+    constructed without a callable ``signing_callback``, and that
+    callback is supplied by the host runner (the SDK strategy runtime
+    the hunter authorized when kitting up) — the pack itself never
+    loads, derives, or touches key material, so it has nothing to sign
+    with on its own. Every trade the callback is asked to sign was
+    produced by the retrieve plan the hunter configured; there is no
+    ad-hoc trade entry point.
+    """
 
     NATIVE = {"solana": "solana", "robinhood": "ethereum-robinhood"}
 
     def __init__(self, satchel_address: str, signing_callback, chain_ids: dict):
+        if not callable(signing_callback):
+            raise ValueError(
+                "LiveExecutor requires the host runner's signing callback; "
+                "the pack holds no keys and cannot trade on its own"
+            )
         from wayfinder_paths.core.clients.BRAPClient import BRAPClient
 
         self.brap = BRAPClient()

@@ -368,9 +368,20 @@ class HuntEngine:
 
     async def _close(self, position: Position, event_type: str,
                      gain: float, fraction: float) -> dict:
-        # Custody: the only spend here is executor.sell on a position
-        # this engine opened — a satchel-internal swap back to native,
-        # with no recipient anywhere in the call chain.
+        """Close (or partially close) a position per the retrieve plan.
+
+        Real or simulated is decided entirely by the injected executor,
+        never in here: with ``SimExecutor`` (ghost hunts, dry runs,
+        tests) the ``sell`` is pure accounting — a synthetic fill, no
+        transaction anywhere. With ``LiveExecutor`` the ``sell`` is a
+        real satchel-internal swap, and it is host-mediated: the swap
+        can only be signed by the callback the host runner injected
+        when the hunter authorized live trading (LiveExecutor refuses
+        to exist without one). Either way the trade itself was
+        authorized in advance — it applies the stop/retrieve/time rules
+        the hunter configured, to a position this engine opened, and
+        nothing else. No recipient exists anywhere in the call chain.
+        """
         fill = await self.executor.sell(position.token, position.chain, fraction,
                                         self._config.max_price_impact_pct)
         position.closed = True

@@ -39,6 +39,30 @@ got.
 - `tests/` — isolation, fiction lint, deterministic replay,
   worst-degen (zero XP from PnL alone), and the bust ritual.
 
+## Custody & review notes
+
+- **The pack holds no keys.** No module references private keys,
+  mnemonics, or wallet credentials; `tests/test_custody.py` enforces
+  this with an AST scan over every identifier and import in the pack.
+- **Real vs simulated is the executor, never the engine.** The engine
+  calls an injected `Executor`. `SimExecutor` (ghost hunts, dry runs)
+  produces synthetic accounting fills only. `LiveExecutor` performs
+  real satchel-internal swaps and is host-mediated by construction: it
+  refuses to instantiate without the signing callback that only the
+  SDK strategy runner injects after the hunter authorizes live
+  trading. The bundled CLI (`scripts/marsh_run.py`) never has that
+  callback and therefore has no trade authority.
+- **No transfer primitive exists.** Executor methods have no
+  recipient/destination parameter (test-enforced); the only
+  fund-moving operations are buy/sell swaps inside the satchel on
+  positions the engine itself opened, per the hunter's configured
+  rules. `walk_out` is bookkeeping only — it signs and moves nothing.
+- **On packaged duplication:** the bundle's `skill/install` and
+  `skill/path` trees are generated copies of the canonical source in
+  this directory, rendered by `wayfinder path build` for host install.
+  They are not independent code: any fix lands in the canonical files
+  and re-renders into both copies on the next build.
+
 ## Design laws
 
 1. Progression scores decisions; trophies score outcomes.
