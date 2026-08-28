@@ -12,6 +12,32 @@ Every hard constraint from the spec is enforced here, in code:
 
 The engine emits events; the game folds them. Nothing in this package
 reads game state (Design Law 2).
+
+Custody model (for reviewers)
+-----------------------------
+This module holds no key material and can name no destination:
+
+- The engine is constructed with an ``Executor``, never a wallet. The
+  live executor (``executor.LiveExecutor``) receives only the SATCHEL
+  wallet's address and an opaque signing callback for it; no code path
+  in this package ever receives, reads, or stores a private key or
+  mnemonic, for the satchel or for anything else.
+- The only fund-moving calls the engine can make are
+  ``executor.buy(...)`` and ``executor.sell(...)``. Both are swaps
+  inside the satchel between its native balance and a token position
+  the engine itself opened. There is no transfer primitive here at
+  all: no recipient parameter exists anywhere in this module or in the
+  Executor protocol, so an "unauthorized transfer" is not expressible.
+- ``sell`` is only ever invoked from ``check_positions``/``_close``
+  against a ``Position`` in ``self.positions`` — positions this engine
+  opened and logged — applying the retrieve plan attached at the shot.
+- ``walk_out`` (banking loot to the main wallet) moves NO funds: it
+  only appends a ``walked_out`` event to the log. The actual
+  withdrawal is performed by the hunter outside this engine, with keys
+  the engine never sees.
+- The main wallet is therefore read-only by construction: its address
+  may appear in runner config for reporting, but no signing capability
+  for it is ever passed into this package.
 """
 
 from __future__ import annotations
@@ -342,6 +368,9 @@ class HuntEngine:
 
     async def _close(self, position: Position, event_type: str,
                      gain: float, fraction: float) -> dict:
+        # Custody: the only spend here is executor.sell on a position
+        # this engine opened — a satchel-internal swap back to native,
+        # with no recipient anywhere in the call chain.
         fill = await self.executor.sell(position.token, position.chain, fraction,
                                         self._config.max_price_impact_pct)
         position.closed = True
@@ -357,7 +386,13 @@ class HuntEngine:
     # -- expedition bookkeeping -------------------------------------------
 
     def walk_out(self, amount_native: float) -> dict:
-        """Bank loot to the main wallet — the win condition."""
+        """Bank loot to the main wallet — the win condition.
+
+        Bookkeeping only: this records the walk-out in the log and the
+        tracked bankroll. It signs nothing and moves nothing — the
+        transfer itself happens outside the engine, with the hunter's
+        own keys (see the custody model in the module docstring).
+        """
         amount = min(amount_native, self.bankroll_native)
         self.bankroll_native -= amount
         return self.log.emit("walked_out", amount=amount,

@@ -3,6 +3,11 @@
   // provides it (wf:apply_state), and falls back to the sample sheet
   // otherwise. Strictly read-only: this page can never touch the
   // engine's gates or limits (Design Law 2).
+  //
+  // Host messaging is origin-locked: the parent's origin is captured
+  // from the first wf:hello event, every later message must come from
+  // that same origin, and every reply targets it explicitly — no
+  // postMessage("*") anywhere.
   var LEVEL_XP = [0, 150, 400, 800, 1400, 2200, 3200, 4500];
   var TROPHY_ART = {
     first_blood: "🩸", walked_out: "💰", big_duck: "🦆", golden_mallard: "🥇",
@@ -11,9 +16,19 @@
   };
 
   var state = {};
+  var parentOrigin = null;
+
+  function isValidOrigin(origin) {
+    return typeof origin === "string" && /^https?:\/\//.test(origin);
+  }
 
   function post(message) {
-    try { window.parent && window.parent.postMessage(message, "*"); } catch (e) {}
+    if (!parentOrigin) return; // no handshake yet: say nothing
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(message, parentOrigin);
+      }
+    } catch (e) {}
   }
 
   function text(selector, value) {
@@ -59,11 +74,25 @@
   window.addEventListener("message", function (event) {
     var msg = event.data;
     if (!msg || typeof msg !== "object") return;
+
     if (msg.type === "wf:hello") {
+      // First valid hello wins; later hellos must match it.
+      if (!parentOrigin) {
+        if (!isValidOrigin(event.origin)) return;
+        if (event.source !== window.parent) return;
+        parentOrigin = event.origin;
+      }
+      if (event.origin !== parentOrigin) return;
       post({ type: "wf:hello_ack", version: "0.1" });
       post({ type: "wf:state", state: state });
       return;
     }
+
+    // Everything else is ignored until the handshake, and afterwards
+    // only accepted from the captured parent origin.
+    if (!parentOrigin || event.origin !== parentOrigin) return;
+    if (event.source !== window.parent) return;
+
     if (msg.type === "wf:apply_state" && msg.state &&
         typeof msg.state === "object") {
       state = msg.state;

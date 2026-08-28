@@ -1,15 +1,15 @@
 """Lodge signals — §7.
 
 Formats engine events into the short lines other hunters see, and
-emits them through the SDK's path signal mechanism (`wayfinder path
-signal emit`). Amounts stay private by default; lodge_private mutes
-everything. All strings here are player-facing and pass the fiction
-lint.
+emits them in-process through the SDK's Paths API client
+(``PathsClient.emit_signal``) — no shell, no subprocess, no dynamic
+command construction. Amounts stay private by default; lodge_private
+mutes everything. All strings here are player-facing and pass the
+fiction lint.
 """
 
 from __future__ import annotations
 
-import subprocess
 from typing import Any
 
 SLUG = "the-marsh"
@@ -53,9 +53,13 @@ def emit(event: dict[str, Any], *, dog_name: str = "Biscuit",
         return None
     name, message = formatted
     if not dry_run:
-        subprocess.run(
-            ["wayfinder", "path", "signal", "emit", "--slug", SLUG,
-             "--version", VERSION, "--title", name, "--message", message],
-            check=False, capture_output=True,
-        )
+        from wayfinder_paths.paths.client import PathsApiClient
+
+        try:
+            PathsApiClient().emit_signal(
+                slug=SLUG, path_version=VERSION, title=name, message=message
+            )
+        except Exception:
+            # a lost lodge signal never blocks or retries the hunt
+            return None
     return message
