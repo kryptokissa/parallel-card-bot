@@ -1,0 +1,4 @@
+.wayfinder_runs/
+.build/
+
+__pycache__/

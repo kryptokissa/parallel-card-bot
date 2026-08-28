@@ -1,0 +1,43 @@
+schema_version: '0.1'
+slug: the-marsh
+name: "The Marsh \U0001F986"
+version: 0.1.0
+summary: "A hunting game where the ducks are memecoins and the loot is real. You're\
+  \ a blind, lazy hunter; your very good dog scouts fresh launches, refuses the rugs,\
+  \ takes one fixed-size shot, and narrates everything. Levels, trophies and seasons\
+  \ score your discipline \u2014 never your PnL. Extremely high risk: read the disclosure,\
+  \ kit up with entertainment money only."
+primary_kind: strategy
+tags:
+- game
+- memecoins
+- degen
+- solana
+- autonomous
+- trenches
+components:
+- id: main
+  kind: strategy
+  path: strategy.py
+applet:
+  build_dir: applet/dist
+  manifest: applet/applet.manifest.json
+skill:
+  enabled: true
+  source: generated
+  name: the-marsh
+  description: 'The dog: scouts trending launches, holds every gate, takes one fixed-size
+    shot on "go now", and narrates the whole hunt.'
+  instructions: skill/instructions.md
+  runtime:
+    mode: thin
+    package: wayfinder-paths
+    version: 0.11.1
+    python: '>=3.12,<3.13'
+    component: main
+    bootstrap: uv
+    fallback_bootstrap: pipx
+    prefer_existing_runtime: true
+    require_api_key: false
+    api_key_env: WAYFINDER_API_KEY
+    config_path_env: WAYFINDER_CONFIG_PATH

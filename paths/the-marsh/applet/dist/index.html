@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <link rel="shortcut icon" href="data:," />
+    <link rel="apple-touch-icon" href="data:," />
+    <title>The Marsh 🦆</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      }
+      body { margin: 0; padding: 16px; background: #0b0f0c; color: #e7f5ea; }
+      .card {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px; padding: 16px;
+        background: rgba(255, 255, 255, 0.04); margin-bottom: 12px;
+      }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+      .muted { opacity: 0.72; font-size: 13px; }
+      .big { font-size: 22px; }
+      .chip {
+        display: inline-block; padding: 3px 10px; border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.18); font-size: 12px;
+      }
+      .xpbar {
+        height: 10px; border-radius: 999px; overflow: hidden;
+        background: rgba(255,255,255,0.08); margin-top: 8px;
+      }
+      .xpbar > div { height: 100%; background: #7fc98f; width: 0%; }
+      .trophy { font-size: 26px; margin-right: 8px; }
+      .gate { padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.10); }
+      .gate:last-child { border-bottom: none; }
+      blockquote {
+        margin: 8px 0 0; padding: 10px 14px; border-left: 3px solid #7fc98f;
+        background: rgba(255,255,255,0.03); border-radius: 0 10px 10px 0;
+        font-style: italic;
+      }
+      .disclosure {
+        font-size: 12px; opacity: 0.85; line-height: 1.5;
+        border-left: 3px solid #c9807f; padding-left: 12px;
+      }
+    </style>
+  </head>
+  <body data-path-ready="true">
+    <div class="card">
+      <div class="row">
+        <span class="big">🐕 <span data-dog-name>Biscuit</span></span>
+        <span class="chip" data-level-title>Level 1 · Pup</span>
+        <span class="chip" data-rating>Unranked</span>
+        <span class="chip" data-weather>Calm</span>
+      </div>
+      <div class="muted" style="margin-top:6px">
+        A hunting game where the ducks are memecoins and the loot is real.
+        You never leave the fire. The dog does the rest.
+      </div>
+      <div class="xpbar"><div data-xp-fill></div></div>
+      <div class="muted" data-xp-label style="margin-top:4px">0 XP</div>
+    </div>
+
+    <div class="card">
+      <div class="muted">Trophy Wall</div>
+      <div data-trophy-wall style="margin-top:8px">
+        <span class="muted">Nothing on the wall yet. The marsh is patient.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted">What the dog refuses</div>
+      <div data-gates style="margin-top:6px">
+        <div class="gate">🌊 <b>Thin water</b> — ponds under $25,000 deep. Not worth wading in.</div>
+        <div class="gate">❄️ <b>Cold ducks</b> — anything under level 70 heat. If it isn't flying, it isn't dinner.</div>
+        <div class="gate">🪺 <b>Nest-sitters and ghosts</b> — younger than 15 minutes or older than 48 hours.</div>
+        <div class="gate">🐋 <b>Whale ponds</b> — ten wallets holding 60% or more. That water belongs to someone.</div>
+        <div class="gate">🦆 <b>Decoys</b> — copies of famous ducks. A painted duck never flew.</div>
+        <div class="gate">🪤 <b>Baited traps</b> — anything you can buy but never sell. The dog can smell them.</div>
+        <div class="gate">☠️ <b>Bad water</b> — mint or freeze levers still attached, or fine print in the feathers.</div>
+      </div>
+      <div class="muted" style="margin-top:8px">
+        One shot per trip, fixed size. Three trips a day. Half banked at
+        +100%, everything at +300%, out at −50%, and a duck that just
+        floats gets walked at 24 hours. The dog will not be argued with.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted">From the hunt log</div>
+      <blockquote data-sample-recap>
+        Expedition 7. Three shots in Brisk weather. One decoy passed.
+        Banded duck retrieved at +118%, stop took the second, third
+        walked at the whistle. Out with +0.29 SOL. Streak: 9. The marsh
+        remembers.
+      </blockquote>
+    </div>
+
+    <div class="card disclosure" data-disclosure>
+      The Marsh trades extremely high-risk, newly launched, low-liquidity
+      tokens. Most such tokens go to approximately zero. The safety gates
+      filter out obvious honeypots, copycats, and whale-concentrated
+      launches; they do not make the expected value positive and cannot
+      detect every rug. Total loss of any position is a normal outcome,
+      not an edge case. The game trades only from its own dedicated
+      wallet: whatever you fund it with is your maximum possible loss —
+      fund it with entertainment money only. Fixed position sizing, a
+      daily hunt limit, and hard stops are enforced in code and cannot be
+      raised mid-hunt. Game rewards reflect process discipline only; no
+      game element indicates, promises, or improves profitability.
+      Nothing here is financial advice.
+    </div>
+
+    <script src="./assets/app.js"></script>
+  </body>
+</html>

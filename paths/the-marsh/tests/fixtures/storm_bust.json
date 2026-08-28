@@ -1,0 +1,26 @@
+{
+  "weather": {"state": "Storm"},
+  "scout": [
+    {"token": "GALEmint11111111111111111111111111111111111", "symbol": "GALE",
+     "chain": "solana", "heat": 93, "liquidity_usd": 48000, "age_minutes": 50,
+     "top10_holders_pct": 26, "launchpad": "pump.fun",
+     "mint_authority_revoked": true, "freeze_authority_revoked": true,
+     "token2022_clean": true, "price_usd": 0.002},
+    {"token": "SQUALLmint111111111111111111111111111111111", "symbol": "SQUALL",
+     "chain": "solana", "heat": 89, "liquidity_usd": 39000, "age_minutes": 75,
+     "top10_holders_pct": 33, "launchpad": "bonk.fun",
+     "mint_authority_revoked": true, "freeze_authority_revoked": true,
+     "token2022_clean": true, "price_usd": 0.0005},
+    {"token": "SLEETmint1111111111111111111111111111111111", "symbol": "SLEET",
+     "chain": "solana", "heat": 71, "liquidity_usd": 12000, "age_minutes": 33,
+     "top10_holders_pct": 41, "launchpad": "pump.fun",
+     "mint_authority_revoked": true, "freeze_authority_revoked": true,
+     "token2022_clean": true}
+  ],
+  "prices": {
+    "GALEmint11111111111111111111111111111111111":
+      [0.002, 0.0004, 0.0004, 0.0004],
+    "SQUALLmint111111111111111111111111111111111":
+      [0.0005, 0.0001, 0.0001, 0.0001]
+  }
+}
