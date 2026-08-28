@@ -115,6 +115,24 @@ def test_sim_executor_fills_are_accounting_only():
     assert buy.tx.startswith("ghost-") and sell.tx.startswith("ghost-")
 
 
+def test_sell_size_cannot_exceed_position():
+    """The fixed-size rules bound exits too: a sell is a clamped
+    fraction of the engine-opened position, never more."""
+    from engine.executor import clamp_fraction
+
+    assert clamp_fraction(0.5) == 0.5
+    assert clamp_fraction(1.0) == 1.0
+    assert clamp_fraction(7.0) == 1.0  # cannot sell more than held
+    assert clamp_fraction(-3.0) == 0.0  # cannot sell a negative amount
+    # and the config cannot even express an out-of-bounds fraction
+    from engine.config import MarshConfig
+
+    with pytest.raises(ValueError):
+        MarshConfig(retrieve_1_fraction=1.5).validate()
+    with pytest.raises(ValueError):
+        MarshConfig(retrieve_1_fraction=0.0).validate()
+
+
 def test_no_signer_construction_in_pack():
     """The pack never imports signing/key machinery; the only signer it
     ever sees is the opaque callback the host injects."""

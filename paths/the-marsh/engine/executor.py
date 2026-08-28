@@ -27,6 +27,14 @@ class Fill:
     reason: str = ""
 
 
+def clamp_fraction(fraction: float) -> float:
+    """Sells are bounded by what the satchel actually holds: a sell is
+    always a fraction in [0, 1] of the engine-opened position, so no
+    exit can ever move more than the position itself. (Buys are sized
+    by the engine at min(hunt_size, bankroll) — see hunt.run_hunt.)"""
+    return max(0.0, min(1.0, float(fraction)))
+
+
 class Executor(Protocol):
     async def quote_impact_pct(self, token: str, chain: str,
                                size_native: float) -> float: ...
@@ -59,6 +67,7 @@ class SimExecutor:
 
     async def sell(self, token: str, chain: str, fraction: float,
                    max_slippage_pct: float) -> Fill:
+        clamp_fraction(fraction)  # same bound as live, same code path
         price = await self.feed.price(token, chain)
         return Fill(ok=True, tx=f"ghost-{uuid.uuid4().hex[:12]}", price_usd=price,
                     price_impact_pct=self.impact_pct)
@@ -126,7 +135,7 @@ class LiveExecutor:
 
         balances = BalanceClient()
         held = await balances.get_token_balance(self.satchel, token, chain)
-        amount = int(int(held) * fraction)
+        amount = int(int(held) * clamp_fraction(fraction))
         if amount <= 0:
             return Fill(ok=False, reason="nothing held")
         quote = await self._quote(token, _native_addr(chain), chain, str(amount),

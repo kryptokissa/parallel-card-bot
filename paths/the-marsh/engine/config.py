@@ -60,6 +60,8 @@ class MarshConfig:
             raise ValueError("stop_loss_pct must be a negative percentage")
         if self.retrieve_2_pct <= self.retrieve_1_pct:
             raise ValueError("retrieve_2 must sit above retrieve_1")
+        if not 0.0 < self.retrieve_1_fraction <= 1.0:
+            raise ValueError("retrieve_1_fraction must be within (0, 1]")
 
     def with_updates(self, **changes: Any) -> "MarshConfig":
         updated = replace(self, **changes)

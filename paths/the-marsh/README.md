@@ -39,6 +39,16 @@ got.
 - `tests/` — isolation, fiction lint, deterministic replay,
   worst-degen (zero XP from PnL alone), and the bust ritual.
 
+## Reviewer checklist → where each safeguard lives
+
+| Concern | Enforced at | Proven by |
+|---|---|---|
+| Does `_close` simulate or trade for real? | Decided solely by the injected executor — documented in `engine/hunt.py::_close` docstring. `SimExecutor` = synthetic accounting fills; `LiveExecutor` = real satchel-internal swaps. | `tests/test_custody.py::test_sim_executor_fills_are_accounting_only` |
+| Real trades need host/user authorization | `LiveExecutor.__init__` raises without the host runner's callable signing callback (`engine/executor.py`); the bundled CLI has no callback and refuses live mode (`scripts/marsh_run.py`) | `tests/test_custody.py::test_live_executor_requires_host_signing_callback` |
+| No private-key / credential access | No credential-shaped identifier and no key-machinery import exists anywhere in the pack | `tests/test_custody.py::test_no_key_material_identifiers_anywhere`, `::test_no_signer_construction_in_pack` |
+| Trade size can't leave the fixed-size rules | Buys sized `min(hunt_size, bankroll)` in `engine/hunt.py::run_hunt`; sells are a clamped `[0,1]` fraction of the engine-opened position (`engine/executor.py::clamp_fraction`); config rejects out-of-bounds fractions (`engine/config.py::validate`) | `tests/test_hard_constraints.py::test_shot_never_exceeds_hunt_size`, `tests/test_custody.py::test_sell_size_cannot_exceed_position` |
+| No withdrawals / arbitrary transactions | No transfer primitive or recipient-like parameter exists on the executor surface; `walk_out` signs and moves nothing (bookkeeping event only); the only signable payloads are BRAP swap quotes for the satchel | `tests/test_custody.py::test_executor_surface_has_no_transfer_primitive` |
+
 ## Custody & review notes
 
 - **The pack holds no keys.** No module references private keys,
