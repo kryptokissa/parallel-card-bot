@@ -28,7 +28,8 @@ This module holds no key material and can name no destination:
   the engine itself opened. There is no transfer primitive here at
   all: no recipient parameter exists anywhere in this module or in the
   Executor protocol, so an "unauthorized transfer" is not expressible.
-- ``sell`` is only ever invoked from ``check_positions``/``_close``
+- ``sell`` is only ever invoked from ``check_positions`` /
+  ``_apply_exit_rule``
   against a ``Position`` in ``self.positions`` — positions this engine
   opened and logged — applying the retrieve plan attached at the shot.
 - ``walk_out`` (banking loot to the main wallet) moves NO funds: it
@@ -339,10 +340,17 @@ class HuntEngine:
             held_hours = (now - position.opened_at).total_seconds() / 3600.0
 
             if gain <= config.stop_loss_pct:
-                emitted.append(await self._close(position, "stopped", gain, 1.0))
+                # user-configured stop_loss rule fired: sell the whole
+                # remaining position back to native inside the satchel
+                stop_event = await self._apply_exit_rule(
+                    position, exit_rule="stopped", gain=gain)
+                emitted.append(stop_event)
                 self.stopped_tokens[position.token] = now
             elif gain >= config.retrieve_2_pct:
-                emitted.append(await self._close(position, "retrieved", gain, 1.0))
+                # user-configured retrieve_2 target hit: full rule exit
+                retrieve_event = await self._apply_exit_rule(
+                    position, exit_rule="retrieved", gain=gain)
+                emitted.append(retrieve_event)
             elif gain >= config.retrieve_1_pct and not position.retrieve_1_done:
                 fill = await self.executor.sell(
                     position.token, position.chain, config.retrieve_1_fraction,
@@ -361,35 +369,46 @@ class HuntEngine:
             elif (held_hours >= config.time_stop_hours
                   and config.time_stop_low_pct <= gain
                   <= config.time_stop_high_pct):
-                emitted.append(await self._close(position, "walked", gain, 1.0))
+                # user-configured time_stop rule fired: rule exit
+                time_stop_event = await self._apply_exit_rule(
+                    position, exit_rule="walked", gain=gain)
+                emitted.append(time_stop_event)
 
         self._check_bust()
         return emitted
 
-    async def _close(self, position: Position, event_type: str,
-                     gain: float, fraction: float) -> dict:
-        """Close (or partially close) a position per the retrieve plan.
+    async def _apply_exit_rule(self, position: Position, *, exit_rule: str,
+                               gain: float) -> dict:
+        """Apply one user-configured exit rule to one engine-opened
+        position: sell its full remaining holding back to native inside
+        the satchel, then log the exit event named by ``exit_rule``
+        ("stopped" / "retrieved" / "walked").
 
         Real or simulated is decided entirely by the injected executor,
         never in here: with ``SimExecutor`` (ghost hunts, dry runs,
         tests) the ``sell`` is pure accounting — a synthetic fill, no
         transaction anywhere. With ``LiveExecutor`` the ``sell`` is a
-        real satchel-internal swap, and it is host-mediated: the swap
-        can only be signed by the callback the host runner injected
-        when the hunter authorized live trading (LiveExecutor refuses
-        to exist without one). Either way the trade itself was
-        authorized in advance — it applies the stop/retrieve/time rules
-        the hunter configured, to a position this engine opened, and
-        nothing else. No recipient exists anywhere in the call chain.
+        real satchel-internal swap through the Wayfinder SDK's approved
+        trade APIs (BRAP quote + SDK transaction utilities, nothing
+        else), and it is host-mediated: the swap can only be signed by
+        the callback the host runner injected when the hunter
+        authorized live trading (LiveExecutor refuses to exist without
+        one). Either way the trade itself was authorized in advance —
+        it applies the stop/retrieve/time rules the hunter configured,
+        to a position this engine opened, and nothing else. It touches
+        no keys, and no recipient exists anywhere in the call chain
+        (see the custody model above and tests/test_custody.py).
         """
-        fill = await self.executor.sell(position.token, position.chain, fraction,
+        # sell 100% of what remains of this position — bounded by the
+        # position itself (clamp_fraction), never more
+        fill = await self.executor.sell(position.token, position.chain, 1.0,
                                         self._config.max_price_impact_pct)
         position.closed = True
         remaining = (1.0 - self._config.retrieve_1_fraction
                      if position.retrieve_1_done else 1.0)
         self.bankroll_native += (position.size_native * remaining
                                  * (1.0 + gain / 100.0))
-        return self.log.emit(event_type, position_id=position.position_id,
+        return self.log.emit(exit_rule, position_id=position.position_id,
                              token=position.token, symbol=position.symbol,
                              gain_pct=round(gain, 1), tx=fill.tx,
                              ghost=self.ghost)
