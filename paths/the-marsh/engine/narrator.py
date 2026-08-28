@@ -45,6 +45,9 @@ def _duck_scouted(event: dict[str, Any]) -> str | None:
     if event.get("verdict") == "passed":
         return (f"${event.get('symbol')} — level {int(event.get('heat', 0))} duck. "
                 f"Clean lines. Watching it.")
+    if event.get("verdict") == "watched":
+        return (f"${event.get('symbol')} — good lines, level "
+                f"{int(event.get('heat', 0))}, but not the first bird.")
     gate = event.get("gate_name", "bad water")
     return f"${event.get('symbol')} — {gate}. Passed."
 

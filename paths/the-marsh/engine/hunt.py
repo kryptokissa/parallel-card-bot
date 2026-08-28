@@ -179,15 +179,29 @@ class HuntEngine:
                       weather=weather.state, ghost=self.ghost)
 
         ducks = await self.feed.scout(config.chain, limit=25)
+        safety_is_free = getattr(self.feed, "safety_is_free", True)
         passed: list[Duck] = []
         failures: dict[str, int] = {}
+        held_tokens = {p.token for p in self.positions.values() if not p.closed}
         for duck in sorted(ducks, key=lambda d: -d.heat):
-            duck = await self.feed.safety_check(duck)
-            locked = self._reentry_locked(duck.token, config, now)
-            failed = ["reentry_lockout"] if locked else run_gates(duck, config)
-            if duck.token in {p.token for p in self.positions.values()
-                              if not p.closed}:
+            if duck.token in held_tokens:
                 failed = ["already_holding"]
+            elif self._reentry_locked(duck.token, config, now):
+                failed = ["reentry_lockout"]
+            else:
+                failed = run_gates(duck, config, include_safety=False)
+                if not failed:
+                    if safety_is_free or not passed:
+                        # live feeds pay per safety check, so once a
+                        # duck has fully passed, the rest stay watched
+                        duck = await self.feed.safety_check(duck)
+                        failed = run_gates(duck, config)
+                    else:
+                        self.log.emit("duck_scouted", hunt_id=hunt_id,
+                                      token=duck.token, symbol=duck.symbol,
+                                      heat=duck.heat, verdict="watched",
+                                      ghost=self.ghost)
+                        continue
             if failed:
                 gate = failed[0]
                 name = GATE_NAMES.get(gate, gate)

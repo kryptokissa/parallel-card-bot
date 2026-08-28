@@ -44,6 +44,17 @@ def _print_events(events: list[dict]) -> None:
 async def _build_engine(args) -> HuntEngine:
     log = EventLog(_log_path(args.ghost))
     config = MarshConfig()
+    if args.live_feed:
+        # real marsh, practice ammunition: live scouting and safety
+        # checks, simulated fills, no funds anywhere near the water
+        from engine.feed import WayfinderFeed  # noqa: PLC0415
+
+        feed = WayfinderFeed()
+        engine = HuntEngine(config, feed, SimExecutor(feed), log, ghost=True)
+        engine.restore_from_log()
+        if engine.bankroll_native <= 0:
+            engine.kit_up(args.kit if args.kit else config.hunt_size * 3)
+        return engine
     if args.ghost or args.fixture:
         fixture = args.fixture or os.path.join(ROOT, "tests", "fixtures",
                                                "calm_day.json")
@@ -110,6 +121,9 @@ def main() -> None:
                         choices=["hunt", "whistle", "recap", "state"])
     parser.add_argument("--ghost", action="store_true",
                         help="practice range: fixture feed, no funds")
+    parser.add_argument("--live-feed", action="store_true",
+                        help="ghost hunt over the real feed: live "
+                             "scouting, simulated fills, no funds")
     parser.add_argument("--fixture", default=None)
     parser.add_argument("--size", type=float, default=None,
                         help="shot size for this hunt (capped by config)")
@@ -117,6 +131,8 @@ def main() -> None:
                         help="ghost-mode satchel size")
     parser.add_argument("--expedition", type=int, default=1)
     args = parser.parse_args()
+    if args.live_feed:
+        args.ghost = True  # live-feed runs are practice: ghost log, sim fills
 
     if args.command == "hunt":
         asyncio.run(cmd_hunt(args))

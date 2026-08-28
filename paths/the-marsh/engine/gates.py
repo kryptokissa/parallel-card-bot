@@ -26,8 +26,15 @@ GATE_NAMES = {
 }
 
 
-def run_gates(duck: Duck, config: MarshConfig) -> list[str]:
-    """Return the list of failed gate ids (empty = duck passed)."""
+def run_gates(duck: Duck, config: MarshConfig,
+              include_safety: bool = True) -> list[str]:
+    """Return the list of failed gate ids (empty = duck passed).
+
+    With include_safety False only the gates decidable from scout data
+    alone run (liquidity, heat, age); the safety-fact gates (whale
+    pond, decoy, trap, bad water) need a safety_check first. A duck is
+    only ever shot after passing the FULL set.
+    """
     failed: list[str] = []
     if duck.liquidity_usd < config.min_liquidity_usd:
         failed.append("liquidity")
@@ -37,6 +44,8 @@ def run_gates(duck: Duck, config: MarshConfig) -> list[str]:
         failed.append("age_young")
     if duck.age_minutes > config.age_max_hours * 60.0:
         failed.append("age_old")
+    if not include_safety:
+        return failed
     if duck.top10_holders_pct >= config.max_top10_holders_pct:
         failed.append("top10")
     if duck.copycat_flag:

@@ -1,25 +1,42 @@
 """Duck feed — trending-token discovery and per-token facts.
 
-Live implementation sits on the Wayfinder API token endpoints
-(`/blockchain/tokens/discover/` for trending, `/blockchain/tokens/detail/`
-with market_data for depth). No Trenches adapter ships in the SDK, so
-this wrapper is the path's own feed wiring (spec §4).
+Live implementation sits on the Wayfinder API (verified against the
+real endpoints):
 
-FixtureFeed replays canned marshes for ghost hunts, tests, and dry runs.
+- ``/blockchain/tokens/discover/`` with ``dimension=active`` is the
+  live trenches feed on Solana (pump.fun launches with age, liquidity,
+  and momentum); ``trending`` is preferred when it has rows.
+- ``/blockchain/tokens/detail/`` (``chain_id`` required; solana=900)
+  carries identity flags: ``suspicious`` and ``verification`` feed the
+  decoy gate, ``current_price`` feeds exit checks.
+- ``/blockchain/rpc/<chain_id>/`` proxies Solana RPC:
+  ``getAccountInfo`` gives mint/freeze authority and Token-2022
+  extensions; ``getTokenLargestAccounts`` + supply gives top-10 holder
+  concentration.
+
+The feed has no native heat score, so heat is derived 0-100 from
+momentum with a published formula (see ``_derive_heat``).
+
+FixtureFeed replays canned marshes for ghost hunts, tests, and dry
+runs; its facts are inline so its safety checks are free.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
 BIOMES = {
     "solana": {
+        "pumpfun": "the Pump Flats",
         "pump.fun": "the Pump Flats",
         "moonshot": "the Moonlit Shallows",
+        "bonkfun": "Bonk Hollow",
         "bonk.fun": "Bonk Hollow",
+        "letsbonk": "Bonk Hollow",
     },
     "robinhood": {
         "noxa": "the Iron Fen",
@@ -28,6 +45,16 @@ BIOMES = {
         "flap": "Flap Water",
         "pons": "the Old Crossing",
     },
+}
+
+CHAIN_IDS = {"solana": 900}
+
+# Token-2022 extensions that are fine on a duck; anything else on the
+# mint is fine print in the feathers (bad water).
+BENIGN_EXTENSIONS = {"metadataPointer", "tokenMetadata"}
+DANGEROUS_EXTENSIONS = {
+    "transferFeeConfig", "transferFeeAmount", "transferHook",
+    "permanentDelegate", "defaultAccountState", "pausableConfig",
 }
 
 
@@ -41,7 +68,7 @@ class Duck:
     heat: float
     liquidity_usd: float
     age_minutes: float
-    top10_holders_pct: float
+    top10_holders_pct: float = 0.0
     copycat_flag: bool = False
     honeypot_flag: bool = False
     red_flags: list[str] = field(default_factory=list)
@@ -69,7 +96,7 @@ class Weather:
 
     @classmethod
     def from_feed(cls, launches_per_hour: float, volatility: float) -> "Weather":
-        score = launches_per_hour / 60.0 + volatility
+        score = launches_per_hour / 4.0 + volatility
         if score >= 2.0:
             return cls("Storm")
         if score >= 1.0:
@@ -78,6 +105,11 @@ class Weather:
 
 
 class DuckFeed(Protocol):
+    # True when safety facts cost nothing to read (fixtures); the
+    # engine safety-checks every duck then. Live feeds set False and
+    # the engine checks lazily, best duck first, to spare API quota.
+    safety_is_free: bool
+
     async def scout(self, chain: str, limit: int) -> list[Duck]: ...
 
     async def safety_check(self, duck: Duck) -> Duck: ...
@@ -87,73 +119,32 @@ class DuckFeed(Protocol):
     async def price(self, token: str, chain: str) -> float: ...
 
 
-class WayfinderFeed:
-    """Live feed over the Wayfinder API token endpoints."""
+def _derive_heat(row: dict[str, Any]) -> float:
+    """Duck level, 0-100, from momentum. Published formula:
 
-    def __init__(self) -> None:
-        from wayfinder_paths.core.clients.TokenClient import TokenClient
+    35% how many hunters are on it   (buyers last hour / 300, capped)
+    30% how hard the water churns    (volume last hour / $250k, capped)
+    20% the hour's climb             (1h price change / +40%, capped)
+    15% the last-five-minutes spark  (5m price change / +8%, capped)
+    """
 
-        self._tokens = TokenClient()
+    def _num(key: str) -> float:
+        try:
+            return float(row.get(key) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
-    async def scout(self, chain: str, limit: int = 25) -> list[Duck]:
-        raw = await self._tokens.discover_tokens(
-            chain_code=chain, dimension="trending", limit=limit
-        )
-        rows = raw.get("rows") or raw.get("data") or raw.get("tokens") or []
-        return [self._normalize(row, chain) for row in rows]
-
-    async def safety_check(self, duck: Duck) -> Duck:
-        details = await self._tokens.get_token_details(
-            f"{duck.chain}_{duck.token}", market_data=True
-        )
-        return _merge_details(duck, details)
-
-    async def weather(self, chain: str) -> Weather:
-        raw = await self._tokens.discover_tokens(
-            chain_code=chain, dimension="trending", limit=50
-        )
-        rows = raw.get("rows") or raw.get("data") or raw.get("tokens") or []
-        launches = [r for r in rows if _age_minutes(r) is not None]
-        recent = sum(1 for r in launches if (_age_minutes(r) or 1e9) <= 60)
-        vol = _median_abs_change(rows)
-        return Weather.from_feed(launches_per_hour=float(recent), volatility=vol)
-
-    async def price(self, token: str, chain: str) -> float:
-        details = await self._tokens.get_token_details(
-            f"{chain}_{token}", market_data=True
-        )
-        market = details.get("market_data") or details
-        price = market.get("price_usd") or market.get("price") or 0.0
-        return float(price)
-
-    def _normalize(self, row: dict[str, Any], chain: str) -> Duck:
-        market = row.get("market_data") or row
-        flags = [str(f) for f in (row.get("risk_flags") or row.get("flags") or [])]
-        lowered = [f.lower() for f in flags]
-        return Duck(
-            token=str(row.get("address") or row.get("mint") or row.get("id") or ""),
-            symbol=str(row.get("symbol") or row.get("name") or "?"),
-            chain=chain,
-            heat=float(row.get("heat") or row.get("trending_score")
-                       or row.get("score") or 0.0),
-            liquidity_usd=float(market.get("liquidity_usd")
-                                or market.get("liquidity") or 0.0),
-            age_minutes=float(_age_minutes(row) or 0.0),
-            top10_holders_pct=float(row.get("top10_holders_pct")
-                                    or row.get("top_10_concentration") or 0.0),
-            copycat_flag=any("copycat" in f or "imitat" in f for f in lowered),
-            honeypot_flag=any("honeypot" in f for f in lowered),
-            red_flags=[f for f in flags
-                       if f.lower() not in ("verified", "ok", "none")],
-            graduated=bool(row.get("graduated") or row.get("is_graduated")),
-            launchpad=str(row.get("launchpad") or row.get("source") or "").lower(),
-            price_usd=(float(market.get("price_usd") or market.get("price") or 0)
-                       or None),
-        )
+    buyers = min(1.0, _num("buyers_h1") / 300.0)
+    churn = min(1.0, _num("volume_h1_usd") / 250_000.0)
+    climb = min(1.0, max(0.0, _num("price_change_h1_pct")) / 40.0)
+    spark = min(1.0, max(0.0, _num("price_change_m5_pct")) / 8.0)
+    return round(100.0 * (0.35 * buyers + 0.30 * churn
+                          + 0.20 * climb + 0.15 * spark), 1)
 
 
 def _age_minutes(row: dict[str, Any]) -> float | None:
-    created = row.get("created_at") or row.get("launch_time") or row.get("launched_at")
+    created = (row.get("pool_created_at") or row.get("created_at")
+               or row.get("launch_time"))
     if created is None:
         return None
     try:
@@ -166,57 +157,161 @@ def _age_minutes(row: dict[str, Any]) -> float | None:
         return None
 
 
-def _median_abs_change(rows: list[dict[str, Any]]) -> float:
-    changes = []
-    for r in rows:
-        market = r.get("market_data") or r
-        change = market.get("price_change_1h") or market.get("change_1h")
-        if change is not None:
-            try:
-                changes.append(abs(float(change)) / 100.0)
-            except (TypeError, ValueError):
-                continue
-    if not changes:
-        return 0.0
-    changes.sort()
-    return changes[len(changes) // 2]
+class WayfinderFeed:
+    """Live feed over the Wayfinder API (see module docstring)."""
 
+    safety_is_free = False
 
-def _merge_details(duck: Duck, details: dict[str, Any]) -> Duck:
-    security = details.get("security") or details.get("safety") or {}
-    ext = details.get("extensions") or {}
-    if duck.chain == "solana":
-        duck.mint_authority_revoked = _flag(
-            security, "mint_authority_revoked", "mint_revoked"
+    def __init__(self) -> None:
+        from wayfinder_paths.core.clients.TokenClient import TokenClient
+
+        self._tokens = TokenClient()
+
+    # -- raw API helpers ---------------------------------------------------
+
+    async def _discover(self, chain: str, dimension: str,
+                        limit: int) -> list[dict[str, Any]]:
+        raw = await self._tokens.discover_tokens(
+            chain_code=chain, dimension=dimension, limit=limit
         )
-        duck.freeze_authority_revoked = _flag(
-            security, "freeze_authority_revoked", "freeze_revoked"
+        return raw.get("tokens") or []
+
+    async def _detail(self, token: str, chain: str) -> dict[str, Any]:
+        details = await self._tokens.get_token_details(
+            token, market_data=True, chain_id=CHAIN_IDS.get(chain)
         )
-        program = str(details.get("token_program") or "").lower()
-        if "2022" in program:
-            dirty = any(
-                bool(ext.get(k))
-                for k in ("transfer_fee", "transfer_hook",
-                          "permanent_delegate", "default_frozen")
-            )
-            duck.token2022_clean = not dirty
+        return details if isinstance(details, dict) else {}
+
+    async def _rpc(self, chain: str, method: str, params: list[Any]) -> Any:
+        import httpx
+
+        from wayfinder_paths.core.config import get_api_base_url, get_api_key
+
+        url = f"{get_api_base_url()}/blockchain/rpc/{CHAIN_IDS[chain]}/"
+        headers = {"Content-Type": "application/json"}
+        api_key = os.environ.get("WAYFINDER_API_KEY") or get_api_key()
+        if api_key:
+            headers["X-API-KEY"] = api_key
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=headers, json={
+                "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+            })
+            resp.raise_for_status()
+            return resp.json().get("result")
+
+    # -- DuckFeed ----------------------------------------------------------
+
+    async def scout(self, chain: str, limit: int = 25) -> list[Duck]:
+        rows = await self._discover(chain, "trending", limit)
+        if not rows:
+            # solana trending is often unpopulated; active is the live
+            # trenches feed there (verified 2026-08)
+            rows = await self._discover(chain, "active", limit)
+        ducks = [self._normalize(row, chain) for row in rows]
+        return [d for d in ducks if d.token]
+
+    async def safety_check(self, duck: Duck) -> Duck:
+        detail = await self._detail(duck.token, duck.chain)
+        identity = detail.get("identity") or {}
+        duck.copycat_flag = bool(identity.get("suspicious"))
+        if identity.get("protected_claim"):
+            duck.copycat_flag = True
+        price = detail.get("current_price")
+        if price:
+            duck.price_usd = float(price)
+
+        if duck.chain == "solana":
+            await self._solana_mint_check(duck)
+            await self._solana_holder_check(duck)
         else:
-            duck.token2022_clean = True  # standard SPL
-    else:
-        sim = security.get("sell_simulation") or {}
-        duck.sell_simulation_ok = bool(sim.get("success", security.get("sellable")))
-        tax = sim.get("sell_tax_pct", security.get("sell_tax"))
-        duck.measured_sell_tax_pct = float(tax) if tax is not None else None
-        slip = sim.get("recommended_slippage_pct")
-        duck.recommended_slippage_pct = float(slip) if slip is not None else None
-    return duck
+            # robinhood chain: needs the sell-simulation service; until
+            # that endpoint is wired the duck stays unverified and the
+            # safety gate refuses it (fail closed, never open)
+            duck.sell_simulation_ok = None
+        return duck
 
+    async def _solana_mint_check(self, duck: Duck) -> None:
+        result = await self._rpc(
+            "solana", "getAccountInfo",
+            [duck.token, {"encoding": "jsonParsed"}],
+        )
+        value = (result or {}).get("value") or {}
+        parsed = ((value.get("data") or {}).get("parsed") or {})
+        info = parsed.get("info") or {}
+        if parsed.get("type") != "mint":
+            duck.mint_authority_revoked = None  # unknown = fail closed
+            return
+        duck.mint_authority_revoked = info.get("mintAuthority") is None
+        duck.freeze_authority_revoked = info.get("freezeAuthority") is None
+        owner = str(value.get("owner") or "")
+        if owner == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA":
+            duck.token2022_clean = True  # standard SPL, no extensions
+        else:
+            names = {str(e.get("extension")) for e in info.get("extensions", [])}
+            duck.token2022_clean = not (names & DANGEROUS_EXTENSIONS) and \
+                names <= (BENIGN_EXTENSIONS | set())
 
-def _flag(container: dict[str, Any], *keys: str) -> bool | None:
-    for key in keys:
-        if key in container:
-            return bool(container[key])
-    return None
+    async def _solana_holder_check(self, duck: Duck) -> None:
+        largest = await self._rpc(
+            "solana", "getTokenLargestAccounts", [duck.token]
+        )
+        accounts = (largest or {}).get("value") or []
+        supply_info = await self._rpc(
+            "solana", "getTokenSupply", [duck.token]
+        )
+        supply = float(((supply_info or {}).get("value") or {})
+                       .get("uiAmount") or 0.0)
+        if supply <= 0 or not accounts:
+            duck.top10_holders_pct = 100.0  # unknown = fail closed
+            return
+        amounts = sorted(
+            (float(a.get("uiAmount") or 0.0) for a in accounts), reverse=True
+        )
+        # the single largest account is almost always the pool/bonding
+        # vault, not a hunter; exclude it from both sides of the ratio
+        pool = amounts[0]
+        rest = amounts[1:11]
+        effective_supply = max(supply - pool, 1e-9)
+        duck.top10_holders_pct = round(100.0 * sum(rest) / effective_supply, 1)
+
+    async def weather(self, chain: str) -> Weather:
+        rows = await self._discover(chain, "active", 25)
+        recent = sum(
+            1 for r in rows if (_age_minutes(r) or 1e9) <= 60
+        )
+        changes = sorted(
+            abs(float(r.get("price_change_h1_pct") or 0.0)) / 100.0
+            for r in rows
+        )
+        vol = changes[len(changes) // 2] if changes else 0.0
+        return Weather.from_feed(launches_per_hour=float(recent),
+                                 volatility=vol)
+
+    async def price(self, token: str, chain: str) -> float:
+        detail = await self._detail(token, chain)
+        return float(detail.get("current_price") or 0.0)
+
+    def _normalize(self, row: dict[str, Any], chain: str) -> Duck:
+        launchpad = str(row.get("launchpad") or "").lower()
+        dex = str(row.get("dex") or "").lower()
+        bonding = str(row.get("bonding_state") or "").lower()
+        # a pump.fun duck now trading on pumpswap has left the bonding
+        # curve: that's a graduated (banded) duck
+        graduated = bool(
+            bonding in ("graduated", "complete")
+            or (launchpad == "pumpfun" and dex == "pumpswap")
+        )
+        return Duck(
+            token=str(row.get("address") or ""),
+            symbol=str(row.get("symbol") or row.get("name") or "?"),
+            chain=chain,
+            heat=_derive_heat(row),
+            liquidity_usd=float(row.get("liquidity_usd") or 0.0),
+            age_minutes=float(_age_minutes(row) or 0.0),
+            graduated=graduated,
+            launchpad=launchpad,
+            price_usd=(float(row.get("price_usd") or 0.0) or None),
+        )
 
 
 class FixtureFeed:
@@ -226,6 +321,8 @@ class FixtureFeed:
     "prices": {"MINT": [p0, p1, ...]}} — each price() call for a token
     advances one step, so exits can be exercised end-to-end.
     """
+
+    safety_is_free = True
 
     def __init__(self, fixture: dict[str, Any] | str,
                  cursor_file: str | None = None):
