@@ -163,37 +163,71 @@ class WayfinderFeed:
     safety_is_free = False
 
     def __init__(self) -> None:
-        from wayfinder_paths.core.clients.TokenClient import TokenClient
-
-        self._tokens = TokenClient()
+        # No SDK client objects are held: the feed talks to the
+        # Wayfinder REST API directly (see _get/_rpc). That keeps the
+        # pack working across SDK releases instead of binding to a
+        # client surface that moves between versions.
+        self._base_url: str | None = None
 
     # -- raw API helpers ---------------------------------------------------
 
+    def _api_base(self) -> str:
+        if self._base_url is None:
+            try:
+                from wayfinder_paths.core.config import get_api_base_url
+
+                self._base_url = str(get_api_base_url()).rstrip("/")
+            except Exception:
+                self._base_url = os.environ.get(
+                    "WAYFINDER_API_BASE_URL", "https://wayfinder.ai/api/v1"
+                ).rstrip("/")
+        return self._base_url
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        api_key = os.environ.get("WAYFINDER_API_KEY")
+        if not api_key:
+            try:
+                from wayfinder_paths.core.config import get_api_key
+
+                api_key = get_api_key()
+            except Exception:
+                api_key = None
+        if api_key:
+            headers["X-API-KEY"] = api_key
+        return headers
+
+    async def _get(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
+        import httpx
+
+        url = f"{self._api_base()}/{endpoint.lstrip('/')}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers(), params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        return data if isinstance(data, dict) else {}
+
     async def _discover(self, chain: str, dimension: str,
                         limit: int) -> list[dict[str, Any]]:
-        raw = await self._tokens.discover_tokens(
-            chain_code=chain, dimension=dimension, limit=limit
-        )
-        return raw.get("tokens") or []
+        raw = await self._get("blockchain/tokens/discover/", {
+            "chain_code": chain, "dimension": dimension, "limit": limit,
+        })
+        return raw.get("tokens") or raw.get("rows") or []
 
     async def _detail(self, token: str, chain: str) -> dict[str, Any]:
-        details = await self._tokens.get_token_details(
-            token, market_data=True, chain_id=CHAIN_IDS.get(chain)
-        )
+        raw = await self._get("blockchain/tokens/detail/", {
+            "query": token, "market_data": "true",
+            "chain_id": CHAIN_IDS.get(chain, ""),
+        })
+        details = raw.get("data", raw)
         return details if isinstance(details, dict) else {}
 
     async def _rpc(self, chain: str, method: str, params: list[Any]) -> Any:
         import httpx
 
-        from wayfinder_paths.core.config import get_api_base_url, get_api_key
-
-        url = f"{get_api_base_url()}/blockchain/rpc/{CHAIN_IDS[chain]}/"
-        headers = {"Content-Type": "application/json"}
-        api_key = os.environ.get("WAYFINDER_API_KEY") or get_api_key()
-        if api_key:
-            headers["X-API-KEY"] = api_key
+        url = f"{self._api_base()}/blockchain/rpc/{CHAIN_IDS[chain]}/"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=headers, json={
+            resp = await client.post(url, headers=self._headers(), json={
                 "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
             })
             resp.raise_for_status()

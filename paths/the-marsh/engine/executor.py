@@ -148,9 +148,18 @@ class LiveExecutor:
         if not calldata:
             return Fill(ok=False, reason="no route")
         if chain == "solana":
-            from wayfinder_paths.core.utils.svm_transaction import (
-                send_svm_versioned_transaction,
-            )
+            try:
+                from wayfinder_paths.core.utils.svm_transaction import (
+                    send_svm_versioned_transaction,
+                )
+            except ImportError:
+                # Solana submission helpers are not in every published
+                # SDK release. Scouting, gates, ghost hunts, and exit
+                # accounting all work without them; only live Solana
+                # submission needs this, so fail loudly and safely here
+                # rather than at import time.
+                return Fill(ok=False, reason="solana submission unavailable "
+                                             "in this runtime")
 
             result = await send_svm_versioned_transaction(
                 calldata, signing_callback=self.sign

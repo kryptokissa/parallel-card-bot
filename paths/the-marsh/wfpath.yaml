@@ -1,7 +1,7 @@
 schema_version: '0.1'
 slug: the-marsh
 name: "The Marsh \U0001F986"
-version: 0.1.4
+version: 0.1.5
 summary: "A hunting game where the ducks are memecoins and the loot is real. You're\
   \ a blind, lazy hunter; your very good dog scouts fresh launches, refuses the rugs,\
   \ takes one fixed-size shot, and narrates everything. Levels, trophies and seasons\
@@ -32,7 +32,7 @@ skill:
   runtime:
     mode: thin
     package: wayfinder-paths
-    version: 0.11.1
+    version: 0.11.0
     python: '>=3.12,<3.13'
     component: main
     bootstrap: uv
