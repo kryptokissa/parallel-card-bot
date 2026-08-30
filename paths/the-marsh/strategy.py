@@ -53,7 +53,8 @@ def wfpath_decision() -> dict:
     events = _events()
     last_hunt: dict = {}
     for event in events:
-        if event.get("type") in ("shot", "no_duck", "hunt_refused"):
+        if event.get("type") in ("shot", "ghost_shot", "no_duck",
+                                 "hunt_refused"):
             last_hunt = event
     if not last_hunt:
         return {
@@ -61,7 +62,7 @@ def wfpath_decision() -> dict:
             "selected": {},
             "candidates": [],
         }
-    if last_hunt.get("type") == "shot":
+    if last_hunt.get("type") in ("shot", "ghost_shot"):
         summary = (f"Last hunt: took ${last_hunt.get('symbol')} in "
                    f"{last_hunt.get('biome')} — it passed every gate at the "
                    f"highest heat.")

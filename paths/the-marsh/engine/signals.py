@@ -53,9 +53,12 @@ def emit(event: dict[str, Any], *, dog_name: str = "Biscuit",
         return None
     name, message = formatted
     if not dry_run:
-        from wayfinder_paths.paths.client import PathsApiClient
-
         try:
+            # Imported inside the guard on purpose: on a runtime without
+            # the SDK (or a release that moves this client), a missing
+            # import must cost at most one lodge signal, never the hunt.
+            from wayfinder_paths.paths.client import PathsApiClient
+
             PathsApiClient().emit_signal(
                 slug=SLUG, path_version=VERSION, title=name, message=message
             )
