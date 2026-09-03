@@ -81,14 +81,31 @@ Schedulable once night hunts unlock (or in veteran_mode).
   Your call, always."
 
 ## Machinery (how to actually run things)
-- Engine code lives beside this skill: `engine/` hunts and manages
-  exits; `game/marsh_engine.py` folds the event log into game state;
-  `strategy.py` exposes state to the page.
-- Run a hunt: `python scripts/marsh_run.py hunt` (add `--ghost` for the
-  practice range, `--size` only lowers, never raises, the shot).
-- Check the whistle: `python scripts/marsh_run.py whistle`.
+Run the component directly. Installed as a skill, the path code sits
+under `path/`, so commands read `python path/strategy.py <cmd>`;
+working from the source repo, drop the `path/` prefix.
+
+- A hunt: `python path/strategy.py hunt`
+  - `--ghost` runs the practice range (fixture marsh, no funds)
+  - `--live-feed` scouts the real marsh with practice ammunition
+  - `--size` only ever lowers the shot, never raises it
+- The whistle, applying the retrieve plan: `python path/strategy.py whistle`
+- The story so far: `python path/strategy.py recap --expedition N`
+- The character sheet: `python path/strategy.py state`
+- With no arguments at all it prints the page contract (meta, state,
+  decision) as JSON.
+
+Do not route these through `scripts/wf_run.py`. That wrapper calls
+`wayfinder path exec` with a `--` separator, which click 8.3+ rejects,
+so it cannot start a component at all. Call the component directly
+until that is fixed upstream.
+
+Inside the code: `engine/` scouts, gates, shoots and manages exits;
+`game/marsh_engine.py` folds the event log into levels, rating and
+trophies without ever touching the hunt; `strategy.py` is the entry
+point and the page's view.
+
 - The event log is canonical: `.wayfinder_runs/marsh_events.jsonl`
-  (override with `MARSH_EVENT_LOG`). Recap any expedition with
-  `python scripts/marsh_run.py recap --expedition N`.
+  (override with `MARSH_EVENT_LOG`).
 - Before anything real, show the risk disclosure in README.md once,
   verbatim — the one sanctioned break in fiction.

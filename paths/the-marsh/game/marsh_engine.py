@@ -17,6 +17,7 @@ or volume. Outcomes earn trophies, which carry zero XP.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
@@ -528,8 +529,15 @@ def trophies(state: GameState) -> list[dict[str, Any]]:
 
 
 def load_events(log_path: str) -> list[dict[str, Any]]:
-    """Read the engine's JSONL event log. Read-only by construction."""
+    """Read the engine's JSONL event log. Read-only by construction.
+
+    A missing log is not an error: it is a hunter who has not gone out
+    yet, and every caller should see an empty history rather than a
+    crash.
+    """
     out: list[dict[str, Any]] = []
+    if not os.path.exists(log_path):
+        return out
     with open(log_path, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
