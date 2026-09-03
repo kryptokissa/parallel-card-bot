@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run The Marsh from a terminal: hunt, whistle, recap, state.
 
-Ghost mode needs nothing but a fixture. Live mode needs a configured
+Ghost mode needs nothing at all: the practice marshes ship
+in engine/practice.py. Live mode needs a configured
 Wayfinder API key and a satchel wallet in config.json; without them it
 refuses politely rather than guessing.
 """
@@ -23,6 +24,7 @@ from engine.events import EventLog  # noqa: E402
 from engine.executor import SimExecutor  # noqa: E402
 from engine.feed import FixtureFeed  # noqa: E402
 from engine.hunt import HuntEngine  # noqa: E402
+from engine.practice import load as load_marsh  # noqa: E402
 from engine.narrator import narrate, recap as tell_recap  # noqa: E402
 from game import marsh_engine  # noqa: E402
 
@@ -56,9 +58,7 @@ async def _build_engine(args) -> HuntEngine:
             engine.kit_up(args.kit if args.kit else config.hunt_size * 3)
         return engine
     if args.ghost or args.fixture:
-        fixture = args.fixture or os.path.join(ROOT, "tests", "fixtures",
-                                               "calm_day.json")
-        feed = FixtureFeed(fixture,
+        feed = FixtureFeed(load_marsh(args.fixture),
                            cursor_file=_log_path(args.ghost) + ".cursor")
         executor = SimExecutor(feed)
         engine = HuntEngine(config, feed, executor, log, ghost=args.ghost)
@@ -118,7 +118,9 @@ def main() -> None:
     parser.add_argument("--live-feed", action="store_true",
                         help="ghost hunt over the real feed: live "
                              "scouting, simulated fills, no funds")
-    parser.add_argument("--fixture", default=None)
+    parser.add_argument("--fixture", default=None,
+                        help="practice marsh: a name (calm_day, "
+                             "no_duck_day, storm_bust) or a file path")
     parser.add_argument("--size", type=float, default=None,
                         help="shot size for this hunt (capped by config)")
     parser.add_argument("--kit", type=float, default=None,

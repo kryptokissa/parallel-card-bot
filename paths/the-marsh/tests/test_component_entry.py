@@ -15,7 +15,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COMPONENT = os.path.join(ROOT, "strategy.py")
-FIXTURE = os.path.join(ROOT, "tests", "fixtures", "calm_day.json")
+FIXTURE = "calm_day"  # a practice marsh that ships with the pack
 
 
 def _run(args, tmp_path, timeout=120):

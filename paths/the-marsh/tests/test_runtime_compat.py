@@ -90,3 +90,26 @@ def test_ghost_hunt_needs_no_sdk(tmp_path):
 
     engine, events = run_day(tmp_path, "calm_day.json", ghost=True)
     assert any(e["type"] == "ghost_shot" for e in events)
+
+
+def test_practice_range_ships_with_the_pack():
+    """The ghost hunt is the whole first-run experience, so it must not
+    depend on anything the skill export strips.
+
+    The export ships only the runtime tree (engine, game, scripts,
+    strategy.py). `tests/` is left behind, so the practice marshes live
+    in engine/practice.py and no runtime module may reach into tests/.
+    """
+    from engine import practice
+
+    assert practice.MARSHES, "no practice marshes ship with the pack"
+    assert practice.DEFAULT in practice.MARSHES
+    assert practice.load()["scout"], "the default marsh has no ducks on it"
+
+    for path in _pack_files():
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        assert "tests/fixtures" not in src, (
+            f"{os.path.relpath(path, ROOT)} reads from tests/, which is "
+            f"not shipped to installed players"
+        )
