@@ -17,14 +17,52 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COMPONENT = os.path.join(ROOT, "strategy.py")
 FIXTURE = "calm_day"  # a practice marsh that ships with the pack
 
+# Every token these tests are allowed to put on a command line. The
+# executable and the script are fixed above; only arguments vary, and
+# only to values named here. Nothing user-supplied, nothing derived
+# from the environment, and nothing built by string formatting ever
+# reaches the child process.
+ALLOWED_ARGS = frozenset({
+    # spoken commands
+    "hunt", "go", "go-now", "ape", "whistle", "recap", "state",
+    # flags
+    "--ghost", "--live-feed", "--fixture",
+    # practice marshes that ship in engine/practice.py
+    "calm_day", "no_duck_day", "storm_bust",
+})
+
 
 def _run(args, tmp_path, timeout=120):
+    """Run the declared component in a child process.
+
+    The command is a fixed argv list — the running interpreter and the
+    absolute path to the component — with no shell between us and it
+    (subprocess defaults to shell=False; it is passed explicitly here
+    so the absence is visible rather than assumed). Arguments are
+    checked against ALLOWED_ARGS before the call, so an argument added
+    carelessly to a future test fails here rather than being handed to
+    a process.
+    """
+    for arg in args:
+        if not isinstance(arg, str) or arg not in ALLOWED_ARGS:
+            raise AssertionError(f"argument not on the allowlist: {arg!r}")
     env = dict(os.environ)
     env["MARSH_EVENT_LOG"] = str(tmp_path / "events.jsonl")
     return subprocess.run(
         [sys.executable, COMPONENT, *args],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=timeout,
+        shell=False, cwd=ROOT, env=env,
+        capture_output=True, text=True, timeout=timeout,
     )
+
+
+def test_runner_rejects_an_argument_off_the_allowlist(tmp_path):
+    """The guard is real, not decorative."""
+    import pytest
+
+    with pytest.raises(AssertionError, match="not on the allowlist"):
+        _run(["hunt; rm -rf /"], tmp_path)
+    with pytest.raises(AssertionError, match="not on the allowlist"):
+        _run(["--fixture", "../../etc/passwd"], tmp_path)
 
 
 def test_component_is_executable_and_reports_contract(tmp_path):
