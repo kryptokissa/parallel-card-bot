@@ -81,24 +81,23 @@ Schedulable once night hunts unlock (or in veteran_mode).
   Your call, always."
 
 ## Machinery (how to actually run things)
-Run the component directly. Installed as a skill, the path code sits
-under `path/`, so commands read `python path/strategy.py <cmd>`;
-working from the source repo, drop the `path/` prefix.
+The normal route is the wrapper the host installs beside this skill:
 
-- A hunt: `python path/strategy.py hunt`
+- A hunt: `python scripts/wf_run.py hunt`
   - `--ghost` runs the practice range (fixture marsh, no funds)
   - `--live-feed` scouts the real marsh with practice ammunition
   - `--size` only ever lowers the shot, never raises it
-- The whistle, applying the retrieve plan: `python path/strategy.py whistle`
-- The story so far: `python path/strategy.py recap --expedition N`
-- The character sheet: `python path/strategy.py state`
-- With no arguments at all it prints the page contract (meta, state,
-  decision) as JSON.
+- The whistle, applying the retrieve plan: `python scripts/wf_run.py whistle`
+- The story so far: `python scripts/wf_run.py recap --expedition N`
+- The character sheet: `python scripts/wf_run.py state`
+- With no arguments it prints the page contract (meta, state, decision).
 
-Do not route these through `scripts/wf_run.py`. That wrapper calls
-`wayfinder path exec` with a `--` separator, which click 8.3+ rejects,
-so it cannot start a component at all. Call the component directly
-until that is fixed upstream.
+The wrapper resolves the runtime and then executes the component. If it
+cannot resolve the runtime — the pinned `wayfinder-paths` will not
+install in this environment — that is a host problem, not a fault in
+the hunt: say so plainly and stop. The same commands run against
+`path/strategy.py` directly if, and only if, your runtime policy allows
+it; the wrapper is the supported route.
 
 Inside the code: `engine/` scouts, gates, shoots and manages exits;
 `game/marsh_engine.py` folds the event log into levels, rating and

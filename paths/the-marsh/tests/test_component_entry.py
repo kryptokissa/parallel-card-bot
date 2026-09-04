@@ -62,12 +62,13 @@ def test_state_survives_a_missing_log(tmp_path):
     assert json.loads(proc.stdout)["hunter"]["level"] == 1
 
 
-def test_skill_instructions_do_not_point_at_the_broken_wrapper(tmp_path):
-    """scripts/wf_run.py cannot start a component under click >= 8.3
-    (it sends a `--` that `wayfinder path exec` rejects), so the dog's
-    instructions must not route through it."""
+def test_skill_instructions_use_the_supported_wrapper(tmp_path):
+    """scripts/wf_run.py is the supported route. An earlier version of
+    these instructions told hosts to avoid it, on the strength of a
+    failure that turned out to be `poetry run` eating the `--`
+    separator, not a fault in the wrapper."""
     text = open(os.path.join(ROOT, "skill", "instructions.md"),
                 encoding="utf-8").read()
     machinery = text[text.index("## Machinery"):]
-    assert "python path/strategy.py hunt" in machinery
-    assert "Do not route these through `scripts/wf_run.py`" in machinery
+    assert "python scripts/wf_run.py hunt" in machinery
+    assert "Do not route these through" not in machinery
