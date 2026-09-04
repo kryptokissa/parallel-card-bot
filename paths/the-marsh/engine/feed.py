@@ -5,7 +5,9 @@ real endpoints):
 
 - ``/blockchain/tokens/discover/`` with ``dimension=active`` is the
   live trenches feed on Solana (pump.fun launches with age, liquidity,
-  and momentum); ``trending`` is preferred when it has rows.
+  and momentum). ``dimension=trending`` is a board of established
+  tokens, all far older than the age window, so it is only a fallback
+  for a chain whose active feed comes back empty.
 - ``/blockchain/tokens/detail/`` (``chain_id`` required; solana=900)
   carries identity flags: ``suspicious`` and ``verification`` feed the
   decoy gate, ``current_price`` feeds exit checks.
@@ -236,11 +238,18 @@ class WayfinderFeed:
     # -- DuckFeed ----------------------------------------------------------
 
     async def scout(self, chain: str, limit: int = 25) -> list[Duck]:
-        rows = await self._discover(chain, "trending", limit)
+        # ``active`` is the trenches: fresh launches, minutes to days
+        # old, which is the only water this hunt fishes. ``trending``
+        # is a popularity board of established tokens — BONK, PENGU,
+        # FARTCOIN, ages measured in years — so every duck on it flies
+        # straight through the age window. It was empty on Solana when
+        # this was first written and the preference sat the other way
+        # round; once it filled up, scouting quietly stopped seeing any
+        # launches at all. Trending is now only a fallback for a chain
+        # whose active feed is dark.
+        rows = await self._discover(chain, "active", limit)
         if not rows:
-            # solana trending is often unpopulated; active is the live
-            # trenches feed there (verified 2026-08)
-            rows = await self._discover(chain, "active", limit)
+            rows = await self._discover(chain, "trending", limit)
         ducks = [self._normalize(row, chain) for row in rows]
         return [d for d in ducks if d.token]
 
