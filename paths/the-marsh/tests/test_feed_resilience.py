@@ -60,9 +60,14 @@ def test_send_retries_once_then_gives_up(monkeypatch):
     """A 5xx is retried once; a second failure is raised, not swallowed."""
     calls: list[str] = []
 
+    # Loopback, never contacted: the client below is a stand-in and no
+    # request leaves the process. A literal external hostname here
+    # would ship an undeclared origin in the bundle, so there isn't one.
+    nowhere = "http://127.0.0.1/marsh-retry-test"
+
     class FakeResponse:
         status_code = 500
-        request = httpx.Request("GET", "https://example.invalid")
+        request = httpx.Request("GET", nowhere)
 
         def raise_for_status(self):
             raise httpx.HTTPStatusError("500", request=self.request,
@@ -81,5 +86,5 @@ def test_send_retries_once_then_gives_up(monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(WayfinderFeed()._send("GET", "https://example.invalid"))
+        asyncio.run(WayfinderFeed()._send("GET", nowhere))
     assert len(calls) == 2, "one retry, then surface the failure"
