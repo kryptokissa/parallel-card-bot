@@ -103,6 +103,8 @@ class HuntEngine:
         recoverable, so a fresh process picks up exactly where the last
         one stopped.
         """
+        trips: list[datetime] = []   # every trip to the marsh
+        shots: list[datetime] = []   # only the trips that fired
         for event in self.log.read():
             etype = event.get("type")
             if event.get("ghost") and not self.ghost:
@@ -116,9 +118,9 @@ class HuntEngine:
             elif etype == "kitted_up":
                 self.bankroll_native += float(event.get("amount", 0))
             elif etype == "hunt_started":
-                self.hunts_today.append(
-                    datetime.fromisoformat(str(event.get("ts"))))
+                trips.append(datetime.fromisoformat(str(event.get("ts"))))
             elif etype in ("shot", "ghost_shot"):
+                shots.append(datetime.fromisoformat(str(event.get("ts"))))
                 self.bankroll_native -= float(event.get("size", 0))
                 self.positions[str(event.get("position_id"))] = Position(
                     position_id=str(event.get("position_id")),
@@ -153,8 +155,12 @@ class HuntEngine:
                             datetime.fromisoformat(str(event.get("ts")))
             elif etype == "walked_out":
                 self.bankroll_native -= float(event.get("amount", 0))
+        # Restore the same quantity the live path counts, or a restart
+        # would silently switch the limit back to rationing trips.
+        counted = (trips if self._config.daily_limit_counts_refusals
+                   else shots)
         cutoff = utcnow() - timedelta(hours=24)
-        self.hunts_today = [t for t in self.hunts_today if t > cutoff]
+        self.hunts_today = [t for t in counted if t > cutoff]
 
     # -- configuration ----------------------------------------------------
 
@@ -201,7 +207,8 @@ class HuntEngine:
             return HuntResult(hunt_id=hunt_id, shot=False,
                               refusal_reason=limit_reason)
 
-        self._count_hunt(now)
+        if config.daily_limit_counts_refusals:
+            self._count_hunt(now)
         self.log.emit("hunt_started", hunt_id=hunt_id, chain=config.chain,
                       weather=weather.state, ghost=self.ghost)
 
@@ -291,6 +298,10 @@ class HuntEngine:
                           starting_bankroll=self.bankroll_native,
                           ghost=self.ghost)
 
+        if not config.daily_limit_counts_refusals:
+            # The limit rations risk: a trip is spent when the shot is
+            # taken, not when the dog goes out and comes back empty.
+            self._count_hunt(now)
         self.bankroll_native -= size
         position = Position(
             position_id=uuid.uuid4().hex[:10],

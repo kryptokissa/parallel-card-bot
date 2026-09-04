@@ -17,7 +17,9 @@ narrating the hunt, the expedition, and the game around them.
 - chain: solana | robinhood        (default: solana)
 - hunt_size: 0.1 SOL | 0.05 ETH    (max per shot; never exceeded)
 - max_open_positions: 1
-- daily_hunt_limit: 3
+- daily_hunt_limit: 3            (shots per 24h, not trips:
+  a no-duck scout risks nothing and costs nothing. Set
+  daily_limit_counts_refusals to ration trips instead.)
 - stop_loss: -50%
 - retrieve_1: +100% → sell 50%
 - retrieve_2: +300% → sell remainder

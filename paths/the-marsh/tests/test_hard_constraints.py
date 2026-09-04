@@ -29,15 +29,29 @@ def test_max_open_positions_blocks_second_hunt(tmp_path):
 
 
 def test_daily_hunt_limit_holds(tmp_path):
+    """The limit rations shots. See tests/test_daily_limit.py for the
+    full contract, including the opt-in that rations trips instead."""
+    config = MarshConfig(daily_hunt_limit=1, max_open_positions=5)
+    _, events = run_day(
+        tmp_path, "calm_day.json", kit=1.0, config=config,
+        plan=("hunt", "hunt", "hunt"),
+    )
+    shots = [e for e in events if e["type"] in ("shot", "ghost_shot")]
+    refusals = [e for e in events if e["type"] == "hunt_refused"
+                and e["reason"] == "day's done"]
+    assert len(shots) == 1, "the limit must cap shots"
+    assert len(refusals) == 2
+
+
+def test_empty_marsh_does_not_spend_the_daily_limit(tmp_path):
+    """A refusal risks nothing, so it must not close the day."""
     _, events = run_day(
         tmp_path, "no_duck_day.json",
         plan=("hunt", "hunt", "hunt", "hunt", "hunt"),
     )
-    hunts = [e for e in events if e["type"] == "hunt_started"]
-    refusals = [e for e in events if e["type"] == "hunt_refused"
+    assert len([e for e in events if e["type"] == "hunt_started"]) == 5
+    assert not [e for e in events if e["type"] == "hunt_refused"
                 and e["reason"] == "day's done"]
-    assert len(hunts) == 3
-    assert len(refusals) == 2
 
 
 def test_stopped_token_locked_out(tmp_path):

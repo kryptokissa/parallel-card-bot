@@ -27,6 +27,10 @@ class MarshConfig:
     hunt_size: float = 0.1  # max native units per shot; never exceeded
     max_open_positions: int = 1
     daily_hunt_limit: int = 3
+    # The daily limit rations risk, so only a shot spends a trip.
+    # Set True to ration trips to the marsh instead, where a
+    # no-duck scout costs the same as a shot.
+    daily_limit_counts_refusals: bool = False
     stop_loss_pct: float = -50.0
     retrieve_1_pct: float = 100.0  # sell 50% here
     retrieve_1_fraction: float = 0.5
