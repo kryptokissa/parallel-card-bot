@@ -21,6 +21,7 @@ GATE_NAMES = {
     "honeypot": "baited trap",
     "safety": "bad water",
     # engine-level refusals that read like gates in the scouting log
+    "safety_unchecked": "couldn't get a good look",
     "reentry_lockout": "bad blood",
     "already_holding": "already carrying one",
 }

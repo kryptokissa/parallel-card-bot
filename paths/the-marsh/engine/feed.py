@@ -199,14 +199,40 @@ class WayfinderFeed:
             headers["X-API-KEY"] = api_key
         return headers
 
-    async def _get(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def _send(self, method: str, url: str, **kwargs: Any) -> Any:
+        """One request, retried once on a timeout or a 5xx.
+
+        The marsh API returns occasional 500s and slow reads. A single
+        retry turns most of those into a normal answer; anything that
+        fails twice is raised, and the caller decides what a missing
+        answer means. It never retries a 4xx — a bad request or a dead
+        key is not going to answer differently the second time.
+        """
         import httpx
 
+        last: Exception | None = None
+        for attempt in (0, 1):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.request(
+                        method, url, headers=self._headers(), **kwargs)
+                    if resp.status_code >= 500 and attempt == 0:
+                        last = httpx.HTTPStatusError(
+                            f"{resp.status_code} from {url}",
+                            request=resp.request, response=resp)
+                        continue
+                    resp.raise_for_status()
+                    return resp.json()
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last = exc
+                if attempt == 1:
+                    raise
+        assert last is not None
+        raise last
+
+    async def _get(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._api_base()}/{endpoint.lstrip('/')}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._send("GET", url, params=params)
         return data if isinstance(data, dict) else {}
 
     async def _discover(self, chain: str, dimension: str,
@@ -225,15 +251,11 @@ class WayfinderFeed:
         return details if isinstance(details, dict) else {}
 
     async def _rpc(self, chain: str, method: str, params: list[Any]) -> Any:
-        import httpx
-
         url = f"{self._api_base()}/blockchain/rpc/{CHAIN_IDS[chain]}/"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=self._headers(), json={
-                "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
-            })
-            resp.raise_for_status()
-            return resp.json().get("result")
+        payload = await self._send("POST", url, json={
+            "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+        })
+        return (payload or {}).get("result")
 
     # -- DuckFeed ----------------------------------------------------------
 

@@ -228,8 +228,17 @@ class HuntEngine:
                     if safety_is_free or not passed:
                         # live feeds pay per safety check, so once a
                         # duck has fully passed, the rest stay watched
-                        duck = await self.feed.safety_check(duck)
-                        failed = run_gates(duck, config)
+                        try:
+                            duck = await self.feed.safety_check(duck)
+                        except Exception:
+                            # The water is checked over the network. A
+                            # check that times out or errors has told
+                            # us nothing, and nothing is not a pass:
+                            # refuse this duck and keep hunting. One
+                            # slow lookup must never end the trip.
+                            failed = ["safety_unchecked"]
+                        else:
+                            failed = run_gates(duck, config)
                     else:
                         self.log.emit("duck_scouted", hunt_id=hunt_id,
                                       token=duck.token, symbol=duck.symbol,
