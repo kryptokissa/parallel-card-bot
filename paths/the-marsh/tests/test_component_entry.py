@@ -15,59 +15,52 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COMPONENT = os.path.join(ROOT, "strategy.py")
-FIXTURE = "calm_day"  # a practice marsh that ships with the pack
+# Every command these tests may run, written out in full. There is no
+# argument spreading, concatenation or formatting anywhere below: each
+# entry is a complete, literal argv list, and _run can only execute one
+# of them by name. The interpreter and the component path are fixed
+# constants. Nothing user-supplied or environment-derived can reach a
+# command line from here. calm_day is a practice marsh that ships in
+# engine/practice.py.
+COMMANDS: dict[str, list[str]] = {
+    "contract": [sys.executable, COMPONENT],
+    "hunt": [sys.executable, COMPONENT, "hunt", "--ghost",
+             "--fixture", "calm_day"],
+    "go": [sys.executable, COMPONENT, "go", "--ghost",
+           "--fixture", "calm_day"],
+    "ape": [sys.executable, COMPONENT, "ape", "--ghost",
+            "--fixture", "calm_day"],
+    "state": [sys.executable, COMPONENT, "state"],
+}
 
-# Every token these tests are allowed to put on a command line. The
-# executable and the script are fixed above; only arguments vary, and
-# only to values named here. Nothing user-supplied, nothing derived
-# from the environment, and nothing built by string formatting ever
-# reaches the child process.
-ALLOWED_ARGS = frozenset({
-    # spoken commands
-    "hunt", "go", "go-now", "ape", "whistle", "recap", "state",
-    # flags
-    "--ghost", "--live-feed", "--fixture",
-    # practice marshes that ship in engine/practice.py
-    "calm_day", "no_duck_day", "storm_bust",
-})
 
+def _run(name, tmp_path, timeout=120):
+    """Run one of the fixed commands above, by name, in a child process.
 
-def _run(args, tmp_path, timeout=120):
-    """Run the declared component in a child process.
-
-    The command is a fixed argv list — the running interpreter and the
-    absolute path to the component — with no shell between us and it
-    (subprocess defaults to shell=False; it is passed explicitly here
-    so the absence is visible rather than assumed). Arguments are
-    checked against ALLOWED_ARGS before the call, so an argument added
-    carelessly to a future test fails here rather than being handed to
-    a process.
+    No shell (passed explicitly rather than left to the default, so its
+    absence is visible), and the argv list comes straight out of
+    COMMANDS -- it is never assembled here.
     """
-    for arg in args:
-        if not isinstance(arg, str) or arg not in ALLOWED_ARGS:
-            raise AssertionError(f"argument not on the allowlist: {arg!r}")
     env = dict(os.environ)
     env["MARSH_EVENT_LOG"] = str(tmp_path / "events.jsonl")
     return subprocess.run(
-        [sys.executable, COMPONENT, *args],
+        COMMANDS[name],
         shell=False, cwd=ROOT, env=env,
         capture_output=True, text=True, timeout=timeout,
     )
 
 
-def test_runner_rejects_an_argument_off_the_allowlist(tmp_path):
-    """The guard is real, not decorative."""
+def test_only_declared_commands_can_run(tmp_path):
+    """A name with no entry cannot become a command line."""
     import pytest
 
-    with pytest.raises(AssertionError, match="not on the allowlist"):
-        _run(["hunt; rm -rf /"], tmp_path)
-    with pytest.raises(AssertionError, match="not on the allowlist"):
-        _run(["--fixture", "../../etc/passwd"], tmp_path)
+    with pytest.raises(KeyError):
+        _run("hunt; rm -rf /", tmp_path)
 
 
 def test_component_is_executable_and_reports_contract(tmp_path):
     """No arguments: the host gets the page contract as JSON."""
-    proc = _run([], tmp_path)
+    proc = _run("contract", tmp_path)
     assert proc.returncode == 0, proc.stderr
     payload = json.loads(proc.stdout)
     assert set(payload) == {"meta", "state", "decision"}
@@ -77,7 +70,7 @@ def test_component_is_executable_and_reports_contract(tmp_path):
 
 def test_component_runs_a_hunt(tmp_path):
     """The host's actual ask: run a hunt through the component."""
-    proc = _run(["hunt", "--ghost", "--fixture", FIXTURE], tmp_path)
+    proc = _run("hunt", tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert "🐕" in proc.stdout, proc.stdout
     events = [json.loads(line) for line in
@@ -88,14 +81,14 @@ def test_component_runs_a_hunt(tmp_path):
 def test_trigger_words_reach_the_dog(tmp_path):
     """'go' and 'ape' are the spoken triggers, not just 'hunt'."""
     for word in ("go", "ape"):
-        proc = _run([word, "--ghost", "--fixture", FIXTURE], tmp_path)
+        proc = _run(word, tmp_path)
         assert proc.returncode == 0, proc.stderr
         assert "🐕" in proc.stdout
 
 
 def test_state_survives_a_missing_log(tmp_path):
     """A hunter who has never gone out is not an error."""
-    proc = _run(["state"], tmp_path)
+    proc = _run("state", tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout)["hunter"]["level"] == 1
 
