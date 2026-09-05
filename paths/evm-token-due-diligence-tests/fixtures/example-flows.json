@@ -1,0 +1,66 @@
+{
+  "_comment": "Synthetic. Feeds `python scripts/main.py reconcile tests/fixtures/example-flows.json`. Amounts are exact base units; the window closes to a zero residual.",
+  "asset": "WETH",
+  "holder": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "decimals": 18,
+  "opening": "0",
+  "closing": "41000000000000000000",
+  "from_block": 21000000,
+  "to_block": 21633856,
+  "tolerance": "0",
+  "flows": [
+    {
+      "label": "LP fee collection, epoch 1",
+      "amount": "24000000000000000000",
+      "direction": "in",
+      "kind": "fee_collection",
+      "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "block_number": 21100000
+    },
+    {
+      "label": "LP fee collection, epoch 2",
+      "amount": "15000000000000000000",
+      "direction": "in",
+      "kind": "fee_collection",
+      "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "block_number": 21400000
+    },
+    {
+      "label": "seed transfer from the deployer",
+      "amount": "3000000000000000000",
+      "direction": "in",
+      "kind": "transfer",
+      "counterparty": "0x6666666666666666666666666666666666666666",
+      "block_number": 21010000
+    },
+    {
+      "label": "wrap: ETH out",
+      "amount": "1000000000000000000",
+      "direction": "out",
+      "kind": "transformation",
+      "note": "same value, other form — netted, never counted as flow"
+    },
+    {
+      "label": "wrap: WETH in",
+      "amount": "1000000000000000000",
+      "direction": "in",
+      "kind": "transformation"
+    },
+    {
+      "label": "operations payment",
+      "amount": "1000000000000000000",
+      "direction": "out",
+      "kind": "transfer",
+      "counterparty": "0x3333333333333333333333333333333333333333",
+      "block_number": 21500000
+    },
+    {
+      "label": "reverted claim attempt",
+      "amount": "5000000000000000000",
+      "direction": "in",
+      "kind": "fee_collection",
+      "reverted": true,
+      "note": "moved nothing; recorded so the attempt is visible"
+    }
+  ]
+}
