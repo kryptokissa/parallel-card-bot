@@ -29,7 +29,9 @@ from engine import executor as executor_module
 from engine.executor import LiveExecutor, SimExecutor
 from engine.feed import FixtureFeed
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "the-marsh")  # the path directory; tests sit beside it, not in it
 
 FORBIDDEN_IDENTIFIERS = (
     "private_key", "privkey", "secret_key", "mnemonic", "seed_phrase",

@@ -13,7 +13,9 @@ import os
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "the-marsh")  # the path directory; tests sit beside it, not in it
 COMPONENT = os.path.join(ROOT, "strategy.py")
 # Every command these tests may run, written out in full. There is no
 # argument spreading, concatenation or formatting anywhere below: each

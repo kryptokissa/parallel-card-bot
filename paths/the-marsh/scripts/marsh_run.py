@@ -36,6 +36,15 @@ def _log_path(ghost: bool) -> str:
     return os.environ.get("MARSH_EVENT_LOG", GHOST_LOG if ghost else DEFAULT_LOG)
 
 
+def _remembered_fixture(log: EventLog) -> str | None:
+    """Which practice marsh this save file was last hunted on."""
+    for event in reversed(log.read()):
+        name = event.get("fixture")
+        if name:
+            return str(name)
+    return None
+
+
 def _print_events(events: list[dict]) -> None:
     for event in events:
         line = narrate(event)
@@ -58,7 +67,14 @@ async def _build_engine(args) -> HuntEngine:
             engine.kit_up(args.kit if args.kit else config.hunt_size * 3)
         return engine
     if args.ghost or args.fixture:
-        feed = FixtureFeed(load_marsh(args.fixture),
+        # The whistle has to hunt the same marsh the shot came from. It
+        # is a separate invocation with no --fixture of its own, so
+        # without this it silently fell back to the default marsh,
+        # found no price for a duck from a different one, and printed
+        # nothing at all -- which read as "nothing happened yet" rather
+        # than "wrong marsh". The log remembers instead.
+        fixture = args.fixture or _remembered_fixture(log) or None
+        feed = FixtureFeed(load_marsh(fixture),
                            cursor_file=_log_path(args.ghost) + ".cursor")
         executor = SimExecutor(feed)
         engine = HuntEngine(config, feed, executor, log, ghost=args.ghost)
@@ -69,6 +85,8 @@ async def _build_engine(args) -> HuntEngine:
             engine.update_config(hunt_size=args.size)
         if engine.bankroll_native <= 0:
             engine.kit_up(args.kit if args.kit else config.hunt_size * 3)
+        if args.fixture:
+            log.emit("practice_marsh", fixture=args.fixture, ghost=True)
         return engine
     # Live, fund-moving runs are host-mediated by design: LiveExecutor
     # refuses to exist without the signing callback that only the SDK
@@ -103,6 +121,29 @@ def cmd_recap(args) -> None:
     print(f"  🐕 {tell_recap(events, args.expedition)}")
 
 
+def cmd_preflight(args) -> None:
+    """Can this runtime actually take a live shot? Answered honestly.
+
+    Worth knowing before a satchel is funded rather than after. Ghost
+    and live-feed hunts work regardless; only fund-moving shots need
+    the submission helpers.
+    """
+    from engine.executor import solana_submission_available
+
+    ok, reason = solana_submission_available()
+    have_key = bool(os.environ.get("WAYFINDER_API_KEY"))
+    print("  🐕 Checking the kit before we go out.")
+    print(f"     Scouting the real marsh: {'yes' if have_key else 'no API key set'}")
+    print(f"     Practice range:          yes, always")
+    if ok:
+        print("     Live shots on Solana:    yes, this runtime can broadcast")
+    else:
+        print(f"     Live shots on Solana:    NO - {reason}")
+        print("     The practice range and live scouting still work in full.")
+        print("     Do not fund a satchel expecting a shot until this says yes.")
+    raise SystemExit(0 if ok else 2)
+
+
 def cmd_state(args) -> None:
     events = marsh_engine.load_events(_log_path(args.ghost))
     state = marsh_engine.replay(events)
@@ -112,7 +153,8 @@ def cmd_state(args) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="marsh_run")
     parser.add_argument("command",
-                        choices=["hunt", "whistle", "recap", "state"])
+                        choices=["hunt", "whistle", "recap", "state",
+                                 "preflight"])
     parser.add_argument("--ghost", action="store_true",
                         help="practice range: fixture feed, no funds")
     parser.add_argument("--live-feed", action="store_true",
@@ -138,6 +180,8 @@ def main() -> None:
         cmd_recap(args)
     elif args.command == "state":
         cmd_state(args)
+    elif args.command == "preflight":
+        cmd_preflight(args)
 
 
 if __name__ == "__main__":

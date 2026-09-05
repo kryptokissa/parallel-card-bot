@@ -197,15 +197,20 @@ class HuntEngine:
         hunt_id = uuid.uuid4().hex[:10]
         now = utcnow()
 
-        weather = await self.feed.weather(config.chain)
-        self.log.emit("weather", state=weather.state)
-
+        # Asked and answered before we read the sky: a refused hunt
+        # should cost nothing and say one thing. Reporting the weather
+        # first made the answer after a bust two lines long, the first
+        # of which was scene-setting for a trip that was never going to
+        # happen.
         limit_reason = self._limits_block_hunt(config, now)
         if limit_reason:
             self.log.emit("hunt_refused", hunt_id=hunt_id, reason=limit_reason,
                           ghost=self.ghost)
             return HuntResult(hunt_id=hunt_id, shot=False,
                               refusal_reason=limit_reason)
+
+        weather = await self.feed.weather(config.chain)
+        self.log.emit("weather", state=weather.state)
 
         if config.daily_limit_counts_refusals:
             self._count_hunt(now)
@@ -465,6 +470,12 @@ class HuntEngine:
         open_count = sum(1 for p in self.positions.values() if not p.closed)
         if open_count >= config.max_open_positions:
             return "satchel full"  # max_open_positions reached
+        if not open_count and self.bankroll_native < config.hunt_size:
+            # The kit is gone -- that is the bust condition itself. Stop
+            # here rather than scouting a marsh we cannot shoot into:
+            # after a bust the dog waits and asks for nothing, so this
+            # must not become another round of offers.
+            return "by the fire"
         recent = [t for t in self.hunts_today if now - t < timedelta(hours=24)]
         if len(recent) >= config.daily_hunt_limit:
             return "day's done"  # daily_hunt_limit reached

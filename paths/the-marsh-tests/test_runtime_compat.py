@@ -19,7 +19,9 @@ from __future__ import annotations
 import ast
 import os
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "the-marsh")  # the path directory; tests sit beside it, not in it
 PACK_SOURCES = ["engine", "game", "scripts", "strategy.py"]
 
 

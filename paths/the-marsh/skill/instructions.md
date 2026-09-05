@@ -92,6 +92,7 @@ The normal route is the wrapper the host installs beside this skill:
 - The whistle, applying the retrieve plan: `python scripts/wf_run.py whistle`
 - The story so far: `python scripts/wf_run.py recap --expedition N`
 - The character sheet: `python scripts/wf_run.py state`
+- Can this runtime trade for real: `python scripts/wf_run.py preflight`
 - With no arguments it prints the page contract (meta, state, decision).
 
 The wrapper resolves the runtime and then executes the component. If it
@@ -100,6 +101,20 @@ install in this environment — that is a host problem, not a fault in
 the hunt: say so plainly and stop. The same commands run against
 `path/strategy.py` directly if, and only if, your runtime policy allows
 it; the wrapper is the supported route.
+
+## Before real money
+Run `preflight` and read it out to the hunter before they fund
+anything. Live shots need the runtime's Solana submission helpers,
+which are absent from the published `wayfinder-paths` 0.11.0 wheel — it
+ships no svm modules at all. Where they are missing:
+
+- the practice range and live scouting work in full
+- a live shot is refused before it quotes, with the reason
+- so a funded satchel would sit unused
+
+Never tell a hunter to kit up while preflight says no. When it says
+yes, the first live shot is a token one — around 0.01 SOL — watched
+through to settlement before any real size.
 
 Inside the code: `engine/` scouts, gates, shoots and manages exits;
 `game/marsh_engine.py` folds the event log into levels, rating and

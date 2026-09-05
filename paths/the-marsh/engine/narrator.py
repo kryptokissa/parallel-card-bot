@@ -114,6 +114,10 @@ def _hunt_refused(event: dict[str, Any]) -> str:
         return "Day's done. Three trips is three trips. Fire's warm."
     if reason == "empty satchel":
         return "Satchel's empty. Kit up when you're ready."
+    if reason == "by the fire":
+        # After the marsh takes the kit the dog asks for nothing. No
+        # invitation, no next time, no suggestion to re-kit.
+        return "I'll be by the fire."
     return "Not going out. Marsh says no today."
 
 

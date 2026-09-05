@@ -73,6 +73,98 @@ class SimExecutor:
                     price_impact_pct=self.impact_pct)
 
 
+def best_quote(quote: dict | None) -> dict:
+    """The chosen route out of a BRAP quote envelope."""
+    if not isinstance(quote, dict):
+        return {}
+    best = quote.get("best_quote")
+    if isinstance(best, dict):
+        return best
+    routes = quote.get("quotes") or quote.get("all_quotes") or []
+    return routes[0] if routes and isinstance(routes[0], dict) else {}
+
+
+def quote_impact_pct_from(best: dict) -> float:
+    """Price impact as a positive percentage.
+
+    BRAP reports impact on the provider quote, and the two field names
+    are the opposite way round from what they look like: ``priceImpact``
+    is already a percentage (-1.1065 means 1.1%), while
+    ``priceImpactPct`` is a fraction ("-0.011065"). Both are signed.
+    Reading either as the other is a factor of a hundred, so this reads
+    the percentage field first and only scales the fraction.
+    """
+    inner = best.get("quote") if isinstance(best.get("quote"), dict) else {}
+    raw = inner.get("priceImpact")
+    if raw is not None:
+        try:
+            return abs(float(raw))
+        except (TypeError, ValueError):
+            pass
+    for key, scale in (("priceImpactPct", 100.0), ("price_impact", 100.0)):
+        raw = inner.get(key, best.get(key))
+        if raw is None:
+            continue
+        try:
+            return abs(float(raw)) * scale
+        except (TypeError, ValueError):
+            continue
+    # No impact in the quote means we cannot show the shot is shallow
+    # enough. Report something no sane max_price_impact will admit
+    # rather than a reassuring zero.
+    return float("inf")
+
+
+def unit_price_usd_from(best: dict) -> float:
+    """USD price of ONE token, matching the feed's price scale.
+
+    The engine measures gains as price / entry_price - 1 against
+    feed.price(), which is a per-token price. A total swap value here
+    would make every stop and retrieve level meaningless, so this
+    returns a unit price or zero, never a total.
+    """
+    validation = best.get("output_validation")
+    if isinstance(validation, dict):
+        try:
+            price = float(validation.get("price_usd") or 0.0)
+        except (TypeError, ValueError):
+            price = 0.0
+        if price > 0:
+            return price
+        # Fall back to deriving it, which also cross-checks the above.
+        try:
+            decimals = int(validation.get("decimals"))
+            amount = int(best.get("output_amount"))
+            usd = float(best.get("output_amount_usd"))
+            units = amount / (10 ** decimals)
+            if units > 0 and usd > 0:
+                return usd / units
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+    return 0.0
+
+
+def solana_submission_available() -> tuple[bool, str]:
+    """Whether this runtime can broadcast a Solana transaction.
+
+    Submission needs the SDK's svm helpers, which are absent from the
+    published 0.11.0 wheel — it ships no svm modules at all. Checking
+    up front means a live hunt refuses before it quotes, instead of
+    discovering it after the hunter has funded a satchel.
+    """
+    try:
+        from wayfinder_paths.core.utils.svm_transaction import (  # noqa: F401
+            send_svm_versioned_transaction,
+        )
+    except ImportError as exc:
+        return False, f"solana submission unavailable in this runtime ({exc})"
+    try:
+        from solders.transaction import VersionedTransaction  # noqa: F401
+    except ImportError as exc:
+        return False, f"solana transaction types unavailable ({exc})"
+    return True, ""
+
+
 class LiveExecutor:
     """Live execution through BRAP from the satchel wallet only.
 
@@ -118,12 +210,17 @@ class LiveExecutor:
                                size_native: float) -> float:
         raw = _native_to_raw(size_native, chain)
         quote = await self._quote(_native_addr(chain), token, chain, raw, 0.01)
-        best = (quote or {}).get("best_quote") or {}
-        impact = best.get("price_impact") or best.get("price_impact_pct") or 0.0
-        return abs(float(impact)) * (100.0 if abs(float(impact)) <= 1.0 else 1.0)
+        return quote_impact_pct_from(best_quote(quote))
 
     async def buy(self, token: str, chain: str, size_native: float,
                   max_slippage_pct: float) -> Fill:
+        if chain == "solana":
+            ok, reason = solana_submission_available()
+            if not ok:
+                # Refuse before quoting: no funds are committed and the
+                # hunter is told why, rather than the hunt dying between
+                # a quote and a broadcast.
+                return Fill(ok=False, reason=reason)
         raw = _native_to_raw(size_native, chain)
         quote = await self._quote(_native_addr(chain), token, chain, raw,
                                   max_slippage_pct / 100.0)
@@ -143,34 +240,56 @@ class LiveExecutor:
         return await self._execute(quote, chain)
 
     async def _execute(self, quote, chain: str) -> Fill:
-        best = (quote or {}).get("best_quote") or {}
-        calldata = quote.get("calldata") or best.get("calldata")
+        best = best_quote(quote)
+        warnings = best.get("safety_warnings")
+        if warnings:
+            # The router itself flagged the route. Fail closed.
+            return Fill(ok=False, reason=f"route flagged: {warnings}")
+        calldata = best.get("calldata") or (
+            quote.get("calldata") if isinstance(quote, dict) else None)
         if not calldata:
             return Fill(ok=False, reason="no route")
-        if chain == "solana":
-            try:
-                from wayfinder_paths.core.utils.svm_transaction import (
-                    send_svm_versioned_transaction,
-                )
-            except ImportError:
-                # Solana submission helpers are not in every published
-                # SDK release. Scouting, gates, ghost hunts, and exit
-                # accounting all work without them; only live Solana
-                # submission needs this, so fail loudly and safely here
-                # rather than at import time.
-                return Fill(ok=False, reason="solana submission unavailable "
-                                             "in this runtime")
 
-            result = await send_svm_versioned_transaction(
-                calldata, signing_callback=self.sign
-            )
-            tx = result.get("signature", "")
+        price = unit_price_usd_from(best)
+        impact = quote_impact_pct_from(best)
+        if chain == "solana":
+            tx = await self._send_solana(calldata)
         else:
             tx = await self.sign({"calldata": calldata})
-        impact = best.get("price_impact") or 0.0
-        price = best.get("to_amount_usd") or best.get("price_usd") or 0.0
-        return Fill(ok=bool(tx), tx=str(tx), price_usd=float(price or 0.0),
-                    price_impact_pct=abs(float(impact)))
+        if not tx:
+            return Fill(ok=False, reason="not broadcast")
+        return Fill(ok=True, tx=str(tx), price_usd=price,
+                    price_impact_pct=0.0 if impact == float("inf") else impact)
+
+    async def _send_solana(self, calldata) -> str:
+        """Hand the route to the SDK's Solana sender, correctly typed.
+
+        The sender takes a decoded VersionedTransaction and the callback
+        under ``sign_callback``; BRAP hands us a dict carrying the
+        transaction base64 under ``serializedTransaction``. Passing the
+        dict straight through, or naming the argument
+        ``signing_callback``, both fail at the call.
+        """
+        import base64
+
+        ok, reason = solana_submission_available()
+        if not ok:
+            raise RuntimeError(reason)
+        from solders.transaction import VersionedTransaction
+        from wayfinder_paths.core.utils.svm_transaction import (
+            send_svm_versioned_transaction,
+        )
+
+        serialized = calldata.get("serializedTransaction") if isinstance(
+            calldata, dict) else calldata
+        if not serialized:
+            return ""
+        tx = VersionedTransaction.from_bytes(base64.b64decode(serialized))
+        result = await send_svm_versioned_transaction(
+            tx, sign_callback=self.sign,
+            chain_id=int(self.chain_ids.get("solana", 900)),
+        )
+        return str((result or {}).get("signature") or "")
 
 
 _DECIMALS = {"solana": 9, "robinhood": 18}

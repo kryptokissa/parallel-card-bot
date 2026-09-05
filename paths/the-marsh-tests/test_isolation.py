@@ -12,7 +12,9 @@ import os
 from engine.config import MarshConfig
 from helpers import run_day
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "the-marsh")  # the path directory; tests sit beside it, not in it
 
 
 def test_game_imports_nothing_from_engine():
