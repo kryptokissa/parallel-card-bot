@@ -1,0 +1,20 @@
+# Eval specs, not test code. `wayfinder path eval` looks for them at this
+# fixed location inside the path, so these two YAML files stay here; the
+# Python suite lives in `evm-token-due-diligence-tests` beside the path so
+# it is not packaged into the published bundle.
+name: skill-exports-render-with-references-and-tools
+type: host_render
+hosts:
+  - claude
+  - portable
+expected_files:
+  - SKILL.md
+  - references/evidence-rules.md
+  - references/liquidity-custody.md
+  - references/validation.md
+  - scripts/assay_validate.py
+  - path/wfpath.yaml
+  - path/scripts/main.py
+  - path/evm_dd/manifest.py
+  - path/evm_dd/rpc.py
+  - path/evm_dd/examples.py
