@@ -60,14 +60,16 @@ def test_send_retries_once_then_gives_up(monkeypatch):
     """A 5xx is retried once; a second failure is raised, not swallowed."""
     calls: list[str] = []
 
-    # Loopback, never contacted: the client below is a stand-in and no
-    # request leaves the process. A literal external hostname here
-    # would ship an undeclared origin in the bundle, so there isn't one.
-    nowhere = "http://127.0.0.1/marsh-retry-test"
+    # No URL literal anywhere in this file: the address is taken from
+    # the feed's own production API base, the single origin this pack
+    # talks to. Nothing is contacted either way — the client below is a
+    # stand-in and no request leaves the process — but a hostname
+    # written out here would ship an undeclared origin in the bundle.
+    url = WayfinderFeed()._api_base() + "/blockchain/tokens/discover/"
 
     class FakeResponse:
         status_code = 500
-        request = httpx.Request("GET", nowhere)
+        request = httpx.Request("GET", url)
 
         def raise_for_status(self):
             raise httpx.HTTPStatusError("500", request=self.request,
@@ -86,5 +88,5 @@ def test_send_retries_once_then_gives_up(monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
     with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(WayfinderFeed()._send("GET", nowhere))
+        asyncio.run(WayfinderFeed()._send("GET", url))
     assert len(calls) == 2, "one retry, then surface the failure"
