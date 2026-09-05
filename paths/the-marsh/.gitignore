@@ -1,0 +1,7 @@
+.wayfinder_runs/
+.build/
+
+__pycache__/
+
+# byproduct of `path publish --bonded`; byte-identical to dist/bundle.zip
+dist/source.zip
