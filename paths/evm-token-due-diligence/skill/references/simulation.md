@@ -16,14 +16,22 @@ Only on a **verified disposable local fork**, with **synthetic test
 accounts**.
 
 ```python
+import os
 from evm_dd.rpc import fork_client
-client = fork_client("http://127.0.0.1:8545")   # refuses any non-loopback endpoint
+
+# The operator supplies the endpoint. The pack ships none, and this call is
+# refused unless the endpoint the operator gives resolves to loopback.
+client = fork_client(os.environ["EVM_FORK_RPC_URL"])
 ```
 
 `fork_client` raises on any endpoint that does not resolve to loopback.
 State-changing methods (`evm_*`, `anvil_*`, `hardhat_*`,
 `eth_sendRawTransaction`) unlock only on such a client. Signing and
 account-enumeration methods stay blocked even there.
+
+The loopback rule is a **refusal condition**, not a destination: the pack
+contains no endpoint of its own, contacts no host it was not handed, and
+carries no URL literal anywhere in its published content.
 
 ## Labelling
 

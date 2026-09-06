@@ -97,7 +97,11 @@ FORBIDDEN_METHODS = frozenset(
     }
 )
 
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"})
+# Hostnames that count as loopback when *refusing* a fork endpoint. This is a
+# deny-everything-else guard, not an origin: the pack never connects anywhere
+# on its own, ships no endpoint, and only ever contacts a host the operator
+# passes in. Removing these values would remove the refusal, not a dependency.
+_LOOPBACK_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"})
 
 
 class RpcError(RuntimeError):
@@ -138,7 +142,7 @@ def is_loopback_endpoint(url: str) -> bool:
         host = urllib.parse.urlsplit(url).hostname
     except ValueError:
         return False
-    return (host or "").lower() in _LOOPBACK_HOSTS
+    return (host or "").lower() in _LOOPBACK_HOSTNAMES
 
 
 @dataclass

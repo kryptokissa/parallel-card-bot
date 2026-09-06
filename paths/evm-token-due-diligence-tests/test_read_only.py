@@ -3,6 +3,13 @@
 A reviewer's first question about anything that touches a chain is "can
 this move my money?". These tests answer it structurally: there is no
 signing path, no key-material identifier, and no reachable write method.
+
+The loopback addresses below are **non-runtime local test fixtures**: they
+exercise the refusal check that decides whether a fork endpoint is
+acceptable. Nothing here is contacted — every transport in this suite is a
+scripted stub — and this file is not part of the published pack. See
+`test_published_origins.py`, which enforces that no URL literal reaches
+shipped content.
 """
 
 from __future__ import annotations

@@ -98,6 +98,9 @@ def test_offline_subcommands_need_no_endpoint():
 
 
 def test_a_target_without_a_chain_is_refused_before_any_network_call():
+    # Non-runtime local test fixture: a closed loopback port, chosen so the
+    # test fails if the argument check ever stops short-circuiting and the
+    # command tries to dial out.
     result = _run(
         [
             "scripts/main.py",
