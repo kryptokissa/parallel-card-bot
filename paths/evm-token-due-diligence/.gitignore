@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.build/
+dist/source.zip
+.wf-artifacts/
+.wf-state/
