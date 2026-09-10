@@ -104,9 +104,19 @@ it; the wrapper is the supported route.
 
 ## Before real money
 Run `preflight` and read it out to the hunter before they fund
-anything. Live shots need the runtime's Solana submission helpers,
-which are absent from the published `wayfinder-paths` 0.11.0 wheel — it
-ships no svm modules at all. Where they are missing:
+anything. It answers three separate questions — whether the runtime
+can broadcast at all, whether a satchel wallet is configured, and who
+holds trade authority — and exits non-zero unless the first two pass.
+Never read a single line of it as "cleared to trade".
+
+Trade authority is the one that never changes: this wrapper holds no
+keys and is never handed the host runner's signing callback, so it
+cannot take a live shot whatever else is true. Live shots run under
+the runner, against a satchel the hunter authorised there.
+
+Broadcasting needs the runtime's Solana submission helpers, which are
+absent from the published `wayfinder-paths` 0.11.0 wheel — it ships no
+svm modules at all. Where they are missing:
 
 - the practice range and live scouting work in full
 - a live shot is refused before it quotes, with the reason
