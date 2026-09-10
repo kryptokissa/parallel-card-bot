@@ -163,12 +163,18 @@ class RpcStats:
         }
 
 
-def _http_transport(url: str, payload: Any, timeout: float) -> Any:
+def _http_transport(
+    url: str, payload: Any, timeout: float, headers: dict[str, str] | None = None
+) -> Any:
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
         data=body,
-        headers={"content-type": "application/json", "accept": "application/json"},
+        headers={
+            "content-type": "application/json",
+            "accept": "application/json",
+            **(headers or {}),
+        },
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -185,7 +191,11 @@ class ReadOnlyRpc:
     max_retries: int = 3
     backoff_seconds: float = 0.75
     fork_mode: bool = False
-    transport: Callable[[str, Any, float], Any] | None = None
+    # Sent with every request and never persisted: a host-provided endpoint
+    # authenticates by header, and that credential must not reach an evidence
+    # row. Only `endpoint_identity` — which is URL-derived — is ever recorded.
+    headers: dict[str, str] = field(default_factory=dict, repr=False)
+    transport: Callable[..., Any] | None = None
     sleep: Callable[[float], None] = time.sleep
     stats: RpcStats = field(default_factory=RpcStats)
     _cache: dict[tuple, Any] = field(default_factory=dict, repr=False)
@@ -322,7 +332,11 @@ class ReadOnlyRpc:
         for attempt in range(self.max_retries):
             try:
                 self.stats.requests += 1
-                raw = transport(self.endpoint, payload, self.timeout)
+                raw = (
+                    transport(self.endpoint, payload, self.timeout, self.headers)
+                    if self.headers
+                    else transport(self.endpoint, payload, self.timeout)
+                )
                 if isinstance(raw, dict):
                     raw = [raw]
                 if not isinstance(raw, list):

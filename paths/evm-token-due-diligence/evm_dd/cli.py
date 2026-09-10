@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Sequence
 
 from evm_dd.addresses import AddressError, parse_target, to_checksum
+from evm_dd import host
 from evm_dd.evidence import Ledger
 from evm_dd.manifest import (
     Declarations,
@@ -34,6 +36,54 @@ def _emit(payload: Any) -> int:
     return 0
 
 
+def _open_rpc(args: argparse.Namespace, chain_id: int) -> tuple[ReadOnlyRpc, str]:
+    """Resolve an endpoint: explicit flag, environment, then the host.
+
+    A path installed on Wayfinder should work on its first run. The host
+    already resolves a read endpoint per chain, so requiring the operator to
+    supply one as well is a defect, not a safeguard.
+    """
+    explicit = (args.rpc or "").strip() or os.environ.get("EVM_RPC_URL", "").strip()
+    if explicit:
+        source = "--rpc" if (args.rpc or "").strip() else "EVM_RPC_URL"
+        return ReadOnlyRpc(endpoint=explicit, chain_id=chain_id, timeout=args.timeout), source
+
+    try:
+        endpoint = host.resolve(chain_id)
+    except host.HostUnavailable as exc:
+        raise SystemExit(
+            json.dumps(
+                {
+                    "ok": False,
+                    "coverage_limitation": {
+                        "scope": "rpc endpoint",
+                        "reason": str(exc),
+                        "consequence": (
+                            "no read could be attempted, so nothing is known about "
+                            "the target — this is a limit of the run, not a finding"
+                        ),
+                        "retryable": True,
+                    },
+                    "remedy": [
+                        "pass --rpc <url>",
+                        "set EVM_RPC_URL",
+                        "or run inside the Wayfinder runtime, which provides one",
+                    ],
+                },
+                indent=2,
+            )
+        ) from exc
+    return (
+        ReadOnlyRpc(
+            endpoint=endpoint.url,
+            chain_id=chain_id,
+            timeout=args.timeout,
+            headers=dict(endpoint.headers),
+        ),
+        endpoint.describe(),
+    )
+
+
 def cmd_packet(args: argparse.Namespace) -> int:
     from evm_dd.collect import build_packet, scan_executing_runtime
 
@@ -43,7 +93,7 @@ def cmd_packet(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     ledger = Ledger()
-    rpc = ReadOnlyRpc(endpoint=args.rpc, chain_id=target.chain_id, timeout=args.timeout)
+    rpc, endpoint_source = _open_rpc(args, target.chain_id)
     try:
         packet = build_packet(
             rpc,
@@ -84,7 +134,7 @@ def cmd_packet(args: argparse.Namespace) -> int:
         "capability_scan": scan,
         "manifest": manifest,
         "coverage_limitations": [item.to_dict() for item in ledger.limitations],
-        "rpc": rpc.stats.to_dict(),
+        "rpc": {**rpc.stats.to_dict(), "endpoint_source": endpoint_source},
     }
     if args.out:
         Path(args.out).write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -92,6 +142,88 @@ def cmd_packet(args: argparse.Namespace) -> int:
         return 0 if result["ok"] else 1
     _emit(result)
     return 0 if result["ok"] else 1
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    """Collect, rate, self-validate and emit — the whole pass in one command."""
+    from evm_dd.assess import assess
+    from evm_dd.collect import build_packet, scan_executing_runtime
+
+    try:
+        target = parse_target(args.target)
+    except AddressError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    ledger = Ledger()
+    rpc, endpoint_source = _open_rpc(args, target.chain_id)
+    try:
+        packet = build_packet(
+            rpc,
+            target,
+            ledger=ledger,
+            decision_question=args.question or "",
+            materiality=(
+                "Authority to mint, rewrite balances, seize, restrict transfers, make "
+                "arbitrary calls or replace the code is material at any size."
+            ),
+            block=args.block,
+        )
+    except (RpcUnavailable, WriteAttemptError) as exc:
+        limitation = getattr(exc, "limitation", None)
+        _emit(
+            {
+                "ok": False,
+                "coverage_limitation": limitation.to_dict() if limitation else str(exc),
+                "note": (
+                    "A limit of the run, not a finding about the token. No surface "
+                    "may be rated clear because of it."
+                ),
+            }
+        )
+        return 3
+
+    scan = scan_executing_runtime(rpc, packet, ledger)
+    report = assess(
+        packet,
+        scan,
+        ledger,
+        question=args.question or "",
+        requirement=args.requirement,
+        mode=args.mode,
+        source_id=args.report_id or f"{target.chain_id}-{target.address[:10]}",
+    )
+    payload = report.to_dict()
+    manifest = build_manifest(
+        packet,
+        declarations=Declarations(rpc_endpoints=[rpc.identity]),
+        report_id=report.source_id,
+    )
+    # The pack validates its own output before handing it over.
+    validation = validate_report(manifest, payload)
+
+    if args.out:
+        base = Path(args.out)
+        base.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        manifest_path = base.with_name(base.stem + "-manifest.json")
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        print(report.verdict.statement if report.verdict else "(no verdict)")
+        print(f"\nwrote {base} and {manifest_path}")
+        print(f"self-validation: {'PASS' if validation.ok else 'FAIL'}")
+        for error in validation.errors:
+            print(f"  error {error}")
+        return 0 if validation.ok else 1
+
+    _emit(
+        {
+            "ok": validation.ok,
+            "report": payload,
+            "manifest": manifest,
+            "self_validation": validation.to_dict(),
+            "rpc": {**rpc.stats.to_dict(), "endpoint_source": endpoint_source},
+        }
+    )
+    return 0 if validation.ok else 1
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -196,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     packet = sub.add_parser("packet", help="build a pinned target packet from an endpoint")
     packet.add_argument("target", help="eip155:<chainId>:<address> or <chainId>:<address>")
-    packet.add_argument("--rpc", required=True, help="JSON-RPC endpoint URL")
+    packet.add_argument("--rpc", default="", help="JSON-RPC endpoint URL (default: EVM_RPC_URL, then the host runtime)")
     packet.add_argument("--block", default="latest", help="block tag to pin (default: latest)")
     packet.add_argument("--question", default="", help="the decision this run must answer")
     packet.add_argument("--materiality", default="", help="materiality rules for this run")
@@ -204,6 +336,24 @@ def build_parser() -> argparse.ArgumentParser:
     packet.add_argument("--timeout", type=float, default=20.0)
     packet.add_argument("--out", default="", help="write the packet JSON here")
     packet.set_defaults(func=cmd_packet)
+
+    report = sub.add_parser(
+        "report", help="collect, rate and emit a self-validated report in one pass"
+    )
+    report.add_argument("target", help="eip155:<chainId>:<address> or <chainId>:<address>")
+    report.add_argument("--rpc", default="", help="JSON-RPC endpoint URL (default: EVM_RPC_URL, then the host runtime)")
+    report.add_argument("--block", default="latest", help="block tag to pin (default: latest)")
+    report.add_argument("--question", default="", help="the decision this run must answer")
+    report.add_argument(
+        "--requirement",
+        default="the token's own controls are not unilaterally dangerous",
+        help="the standard the verdict is issued against",
+    )
+    report.add_argument("--mode", default="focused", choices=["focused", "broad", "formal"])
+    report.add_argument("--report-id", default="")
+    report.add_argument("--timeout", type=float, default=20.0)
+    report.add_argument("--out", default="", help="write report and manifest here")
+    report.set_defaults(func=cmd_report)
 
     validate = sub.add_parser("validate", help="validate a manifest, and optionally a report")
     validate.add_argument("manifest")

@@ -82,15 +82,23 @@ strings instead, so they cannot drift or be mistyped.
 
 ## What you supply
 
-An RPC endpoint, in `EVM_RPC_URL` or `--rpc`. The pack ships none and
-redacts credentials out of everything it writes down. Historical replay
+**On Wayfinder, nothing.** The runtime already resolves a read endpoint per
+chain — the operator's own `strategy.rpc_urls` if configured, otherwise
+Wayfinder's key-authenticated endpoint — and the pack uses it. An install
+works on its first run.
+
+**Standalone**, an endpoint, in `--rpc` or `EVM_RPC_URL`. The pack ships
+none, and redacts credentials out of everything it writes down. Historical replay
 needs archive depth; without it, the affected checks come back as coverage
 limitations rather than as results.
 
 ## Running
 
 ```bash
-# a pinned target packet plus its integrity manifest
+# the whole pass in one command: collect, rate, self-validate, emit
+python scripts/main.py report eip155:1:0xYourToken --rpc "$EVM_RPC_URL" --out report.json
+
+# just the pinned target packet plus its integrity manifest
 python scripts/main.py packet eip155:1:0xYourToken --rpc "$EVM_RPC_URL" --out packet.json
 
 # capability scan of runtime bytecode, offline
@@ -148,6 +156,23 @@ outflows, the residual, and the residual as basis points of turnover.
 
 A complete worked file lives in
 `evm-token-due-diligence-tests/fixtures/example-flows.json`.
+
+## What `report` gives you
+
+One command does the whole pass: verifies the chain id, pins the block,
+resolves the executing implementation behind any proxy, scans that runtime
+for privileged capability, rates the surfaces the evidence supports, and
+runs the report through the pack's own validator before handing it over.
+
+It rates what it read and **names every surface it did not reach as
+`not_checked`**. Because ten of the eleven surfaces need reads this pass
+does not make, a clean result on token controls produces
+`INSUFFICIENT EVIDENCE` at the document level, not `GO` — while still
+leading with what was established. A critical finding still outranks the
+gaps and returns `NO-GO`.
+
+That asymmetry is the point: gaps cannot be argued into an approval, and a
+blocker cannot be diluted by them.
 
 ## The one thing to remember about the validator
 
