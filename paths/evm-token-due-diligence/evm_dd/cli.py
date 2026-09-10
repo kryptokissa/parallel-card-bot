@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Sequence
 
 from evm_dd.addresses import AddressError, parse_target, to_checksum
+from evm_dd import host
 from evm_dd.evidence import Ledger
 from evm_dd.manifest import (
     Declarations,
@@ -34,6 +36,54 @@ def _emit(payload: Any) -> int:
     return 0
 
 
+def _open_rpc(args: argparse.Namespace, chain_id: int) -> tuple[ReadOnlyRpc, str]:
+    """Resolve an endpoint: explicit flag, environment, then the host.
+
+    A path installed on Wayfinder should work on its first run. The host
+    already resolves a read endpoint per chain, so requiring the operator to
+    supply one as well is a defect, not a safeguard.
+    """
+    explicit = (args.rpc or "").strip() or os.environ.get("EVM_RPC_URL", "").strip()
+    if explicit:
+        source = "--rpc" if (args.rpc or "").strip() else "EVM_RPC_URL"
+        return ReadOnlyRpc(endpoint=explicit, chain_id=chain_id, timeout=args.timeout), source
+
+    try:
+        endpoint = host.resolve(chain_id)
+    except host.HostUnavailable as exc:
+        raise SystemExit(
+            json.dumps(
+                {
+                    "ok": False,
+                    "coverage_limitation": {
+                        "scope": "rpc endpoint",
+                        "reason": str(exc),
+                        "consequence": (
+                            "no read could be attempted, so nothing is known about "
+                            "the target — this is a limit of the run, not a finding"
+                        ),
+                        "retryable": True,
+                    },
+                    "remedy": [
+                        "pass --rpc <url>",
+                        "set EVM_RPC_URL",
+                        "or run inside the Wayfinder runtime, which provides one",
+                    ],
+                },
+                indent=2,
+            )
+        ) from exc
+    return (
+        ReadOnlyRpc(
+            endpoint=endpoint.url,
+            chain_id=chain_id,
+            timeout=args.timeout,
+            headers=dict(endpoint.headers),
+        ),
+        endpoint.describe(),
+    )
+
+
 def cmd_packet(args: argparse.Namespace) -> int:
     from evm_dd.collect import build_packet, scan_executing_runtime
 
@@ -43,7 +93,7 @@ def cmd_packet(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     ledger = Ledger()
-    rpc = ReadOnlyRpc(endpoint=args.rpc, chain_id=target.chain_id, timeout=args.timeout)
+    rpc, endpoint_source = _open_rpc(args, target.chain_id)
     try:
         packet = build_packet(
             rpc,
@@ -84,7 +134,7 @@ def cmd_packet(args: argparse.Namespace) -> int:
         "capability_scan": scan,
         "manifest": manifest,
         "coverage_limitations": [item.to_dict() for item in ledger.limitations],
-        "rpc": rpc.stats.to_dict(),
+        "rpc": {**rpc.stats.to_dict(), "endpoint_source": endpoint_source},
     }
     if args.out:
         Path(args.out).write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -106,7 +156,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         return 2
 
     ledger = Ledger()
-    rpc = ReadOnlyRpc(endpoint=args.rpc, chain_id=target.chain_id, timeout=args.timeout)
+    rpc, endpoint_source = _open_rpc(args, target.chain_id)
     try:
         packet = build_packet(
             rpc,
@@ -170,7 +220,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             "report": payload,
             "manifest": manifest,
             "self_validation": validation.to_dict(),
-            "rpc": rpc.stats.to_dict(),
+            "rpc": {**rpc.stats.to_dict(), "endpoint_source": endpoint_source},
         }
     )
     return 0 if validation.ok else 1
@@ -278,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     packet = sub.add_parser("packet", help="build a pinned target packet from an endpoint")
     packet.add_argument("target", help="eip155:<chainId>:<address> or <chainId>:<address>")
-    packet.add_argument("--rpc", required=True, help="JSON-RPC endpoint URL")
+    packet.add_argument("--rpc", default="", help="JSON-RPC endpoint URL (default: EVM_RPC_URL, then the host runtime)")
     packet.add_argument("--block", default="latest", help="block tag to pin (default: latest)")
     packet.add_argument("--question", default="", help="the decision this run must answer")
     packet.add_argument("--materiality", default="", help="materiality rules for this run")
@@ -291,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
         "report", help="collect, rate and emit a self-validated report in one pass"
     )
     report.add_argument("target", help="eip155:<chainId>:<address> or <chainId>:<address>")
-    report.add_argument("--rpc", required=True, help="JSON-RPC endpoint URL")
+    report.add_argument("--rpc", default="", help="JSON-RPC endpoint URL (default: EVM_RPC_URL, then the host runtime)")
     report.add_argument("--block", default="latest", help="block tag to pin (default: latest)")
     report.add_argument("--question", default="", help="the decision this run must answer")
     report.add_argument(

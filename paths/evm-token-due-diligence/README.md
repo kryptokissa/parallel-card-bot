@@ -82,8 +82,13 @@ strings instead, so they cannot drift or be mistyped.
 
 ## What you supply
 
-An RPC endpoint, in `EVM_RPC_URL` or `--rpc`. The pack ships none and
-redacts credentials out of everything it writes down. Historical replay
+**On Wayfinder, nothing.** The runtime already resolves a read endpoint per
+chain — the operator's own `strategy.rpc_urls` if configured, otherwise
+Wayfinder's key-authenticated endpoint — and the pack uses it. An install
+works on its first run.
+
+**Standalone**, an endpoint, in `--rpc` or `EVM_RPC_URL`. The pack ships
+none, and redacts credentials out of everything it writes down. Historical replay
 needs archive depth; without it, the affected checks come back as coverage
 limitations rather than as results.
 

@@ -52,7 +52,9 @@ def scripted_transport(
 ) -> Callable[[str, Any, float], Any]:
     """Turn a (method, params) -> result function into an RPC transport."""
 
-    def transport(_url: str, payload: Any, _timeout: float) -> Any:
+    def transport(
+        _url: str, payload: Any, _timeout: float, _headers: dict | None = None
+    ) -> Any:
         requests = payload if isinstance(payload, list) else [payload]
         out = []
         for request in requests:
@@ -74,7 +76,9 @@ def scripted_transport(
 
 
 def failing_transport(message: str = "execution timeout"):
-    def transport(_url: str, _payload: Any, _timeout: float) -> Any:
+    def transport(
+        _url: str, _payload: Any, _timeout: float, _headers: dict | None = None
+    ) -> Any:
         raise TimeoutError(message)
 
     return transport

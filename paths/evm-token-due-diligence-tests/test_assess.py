@@ -166,3 +166,76 @@ def test_an_endpoint_failure_never_becomes_a_rating():
     with pytest.raises(RpcUnavailable) as excinfo:
         build_packet(client, TargetRef(1, TOKEN), ledger=Ledger())
     assert "not a property of the token" in excinfo.value.limitation.consequence
+
+
+# --- endpoint resolution ---------------------------------------------------
+
+
+def test_the_host_endpoint_is_used_when_no_url_is_supplied(monkeypatch):
+    """A path installed on Wayfinder must work on its first run.
+
+    The runtime already resolves a read endpoint per chain. v0.1.2 demanded
+    one anyway and failed every fresh install with
+    "no configured RPC is available".
+    """
+    import sys
+    import types
+
+    fake = types.ModuleType("wayfinder_paths.core.config")
+    fake.get_rpc_urls = lambda: {}
+    fake.get_api_base_url = lambda: "https://api.example.org/api/v1"
+    fake.get_api_key = lambda: "wk_secret"
+    pkg = types.ModuleType("wayfinder_paths")
+    core = types.ModuleType("wayfinder_paths.core")
+    monkeypatch.setitem(sys.modules, "wayfinder_paths", pkg)
+    monkeypatch.setitem(sys.modules, "wayfinder_paths.core", core)
+    monkeypatch.setitem(sys.modules, "wayfinder_paths.core.config", fake)
+
+    from evm_dd import host
+
+    endpoint = host.resolve(8453)
+    assert endpoint.url == "https://api.example.org/api/v1/blockchain/rpc/8453/"
+    assert endpoint.headers == {"X-API-KEY": "wk_secret"}
+    assert "wayfinder runtime" in endpoint.origin
+
+
+def test_an_operator_configured_endpoint_beats_the_hosts_own(monkeypatch):
+    import sys
+    import types
+
+    fake = types.ModuleType("wayfinder_paths.core.config")
+    fake.get_rpc_urls = lambda: {"1": ["https://node.operator.example/rpc"]}
+    fake.get_api_base_url = lambda: "https://api.example.org"
+    fake.get_api_key = lambda: "wk_secret"
+    monkeypatch.setitem(sys.modules, "wayfinder_paths", types.ModuleType("wayfinder_paths"))
+    monkeypatch.setitem(sys.modules, "wayfinder_paths.core", types.ModuleType("wayfinder_paths.core"))
+    monkeypatch.setitem(sys.modules, "wayfinder_paths.core.config", fake)
+
+    from evm_dd import host
+
+    endpoint = host.resolve(1)
+    assert endpoint.url == "https://node.operator.example/rpc"
+    assert endpoint.headers == {}          # their node, their auth, not ours
+
+
+def test_standalone_runs_still_require_an_explicit_endpoint():
+    from evm_dd import host
+
+    with pytest.raises(host.HostUnavailable) as excinfo:
+        host.resolve(1)
+    assert "--rpc" in str(excinfo.value)
+
+
+def test_the_host_credential_never_reaches_an_evidence_row():
+    """The key authenticates by header; only the URL identity is recorded."""
+    from evm_dd.rpc import ReadOnlyRpc
+
+    client = ReadOnlyRpc(
+        endpoint="https://api.example.org/api/v1/blockchain/rpc/1/",
+        chain_id=1,
+        headers={"X-API-KEY": "wk_secret"},
+        transport=scripted_transport(lambda m, p: hex(1)),
+    )
+    assert client.verify_chain(1) == 1
+    assert "wk_secret" not in client.identity
+    assert "api.example.org" in client.identity
