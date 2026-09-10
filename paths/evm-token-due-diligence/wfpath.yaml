@@ -1,7 +1,7 @@
 schema_version: '0.1'
 slug: evm-token-due-diligence
 name: "Assay \U0001F52C"
-version: 0.1.1
+version: 0.1.2
 summary: "Point it at one contract on one chain. It comes back with what privileged\
   \ actors can change or take, who can pull liquidity principal, whether you can actually\
   \ sell at your size, how concentrated ownership really is, and where the fees go\
