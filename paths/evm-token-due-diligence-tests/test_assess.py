@@ -239,3 +239,65 @@ def test_the_host_credential_never_reaches_an_evidence_row():
     assert client.verify_chain(1) == 1
     assert "wk_secret" not in client.identity
     assert "api.example.org" in client.identity
+
+
+# --- crying wolf -----------------------------------------------------------
+
+
+def test_the_standard_burnable_surface_is_not_privilege():
+    """The false positive the first real run produced.
+
+    `burn(uint256)` burns the caller's own balance and
+    `burnFrom(address,uint256)` spends an allowance the holder granted.
+    Both are stock OpenZeppelin ERC20Burnable and appear on a large share of
+    ordinary tokens. They were classified as supply change (critical) and
+    position removal (high) — the latter a selector collision with the
+    Uniswap position manager, where `burn(uint256)` means something else
+    entirely. Together they returned NO-GO at critical severity on a token
+    whose bytecode has no privileged entry point at all.
+    """
+    from evm_dd.keccak import selector
+    from evm_dd.selectors import SEVERITY_BY_CAPABILITY, describe_limits, scan_runtime
+
+    runtime = "0x" + "".join(
+        "63" + selector(sig)[2:]
+        for sig in (
+            "burn(uint256)",
+            "burnFrom(address,uint256)",
+            "transfer(address,uint256)",
+            "owner()",
+        )
+    ) + "00"
+    scan = scan_runtime(runtime)
+
+    assert sorted(scan.capabilities) == ["authority", "holder_burn"]
+    assert SEVERITY_BY_CAPABILITY["holder_burn"] == "informational"
+    # Reported, not hidden — and the caveat explaining why travels with it.
+    assert any("allowance the holder granted" in item for item in describe_limits(scan))
+
+
+def test_a_burnable_token_does_not_rate_adverse():
+    """End to end: the same surface must not drive the verdict."""
+    from evm_dd.keccak import selector
+
+    burnable = "0x" + "".join(
+        "63" + selector(sig)[2:]
+        for sig in ("burn(uint256)", "burnFrom(address,uint256)", "owner()")
+    ) + "00"
+    _, payload, manifest = _run(proxy=False, target_runtime=burnable)
+    controls = _rating(payload, "token_controls")
+    assert controls["status"] == Status.CLEAR.value
+    assert controls["severity"] == "informational"
+    assert payload["verdict"]["call"] != "NO-GO"
+    assert validate_report(manifest, payload).ok
+
+
+def test_burning_a_named_account_without_allowance_is_still_adverse():
+    """The genuinely dangerous shape must survive the reclassification."""
+    from evm_dd.keccak import selector
+
+    seizing = "0x" + "63" + selector("burn(address,uint256)")[2:] + "00"
+    _, payload, _ = _run(proxy=False, target_runtime=seizing)
+    controls = _rating(payload, "token_controls")
+    assert controls["status"] == Status.ADVERSE.value
+    assert controls["severity"] == "critical"

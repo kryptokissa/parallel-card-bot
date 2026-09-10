@@ -38,8 +38,7 @@ _CAPABILITY_SIGNATURES: dict[str, tuple[tuple[str, str], ...]] = {
         ("mint(address,uint256)", "mints to an arbitrary recipient"),
         ("mint(uint256)", "mints to the caller or a fixed sink"),
         ("mintTo(address,uint256)", "mints to an arbitrary recipient"),
-        ("burn(address,uint256)", "burns another account's balance"),
-        ("burnFrom(address,uint256)", "burns from an account"),
+        ("burn(address,uint256)", "burns a named account's balance"),
         ("rebase(uint256)", "rewrites every balance by a factor"),
         ("setTotalSupply(uint256)", "rewrites supply directly"),
     ),
@@ -120,13 +119,16 @@ _CAPABILITY_SIGNATURES: dict[str, tuple[tuple[str, str], ...]] = {
         ("decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))",
          "withdraws principal from a v3 position"),
         ("collect((uint256,address,uint128,uint128))", "collects position fees"),
-        ("burn(uint256)", "burns a position token"),
         ("removeLiquidity(address,address,uint256,uint256,uint256,address,uint256)",
          "withdraws principal from a v2 pair"),
         ("unlock()", "releases a lock"),
         ("withdraw()", "withdraws from a locker or vault"),
         ("withdrawNFT(address,uint256)", "moves a position NFT out of a locker"),
         ("extendLock(uint256)", "changes lock duration"),
+    ),
+    "holder_burn": (
+        ("burn(uint256)", "lets a holder burn their own balance"),
+        ("burnFrom(address,uint256)", "burns an allowance the holder granted"),
     ),
     "external_dependency": (
         ("setOracle(address)", "changes the price source"),
@@ -148,6 +150,7 @@ SEVERITY_BY_CAPABILITY = {
     "fee_control": "medium",
     "external_dependency": "medium",
     "authority": "informational",
+    "holder_burn": "informational",
 }
 
 # Capabilities where a monetary materiality threshold must never be applied:
@@ -333,6 +336,14 @@ def describe_limits(scan: CapabilityScan) -> list[str]:
         limits.append(
             "This runtime contains SELFDESTRUCT: the code at this address is "
             "not necessarily permanent."
+        )
+    if "holder_burn" in scan.capabilities:
+        limits.append(
+            "burn(uint256) and burnFrom(address,uint256) are the standard "
+            "ERC20Burnable surface: the first burns the caller's own balance, "
+            "the second spends an allowance the holder granted. Neither is "
+            "privileged unless this implementation skips the allowance check "
+            "— read that path before treating either as seizure."
         )
     if not scan.selectors:
         limits.append(

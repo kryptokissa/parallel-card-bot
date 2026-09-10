@@ -41,6 +41,13 @@ CONTROL_FAMILIES = (
     "fee_control",
 )
 
+# Families that describe an ordinary, permissionless surface. They are
+# reported so a reader can see them, and never rated adverse: `authority`
+# says roles exist, not that they are dangerous, and `holder_burn` is the
+# standard ERC20Burnable pair. Reading either as privilege is how a tool
+# cries wolf on the first honest token it meets.
+NON_PRIVILEGED_FAMILIES = ("authority", "holder_burn", "external_dependency")
+
 _SEVERITY_ORDER = ("informational", "low", "medium", "high", "critical")
 
 

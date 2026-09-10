@@ -101,6 +101,8 @@ FORBIDDEN_METHODS = frozenset(
 # deny-everything-else guard, not an origin: the pack never connects anywhere
 # on its own, ships no endpoint, and only ever contacts a host the operator
 # passes in. Removing these values would remove the refusal, not a dependency.
+USER_AGENT = "assay-evm-token-due-diligence (read-only diligence client)"
+
 _LOOPBACK_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"})
 
 
@@ -173,6 +175,11 @@ def _http_transport(
         headers={
             "content-type": "application/json",
             "accept": "application/json",
+            # Identify the client. Python's default `Python-urllib/x.y` is
+            # refused outright by endpoints sitting behind a WAF — including
+            # the host's own — and the resulting 403 looks like an auth
+            # failure rather than a rejected user agent.
+            "user-agent": USER_AGENT,
             **(headers or {}),
         },
         method="POST",
