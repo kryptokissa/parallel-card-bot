@@ -98,3 +98,58 @@ def test_after_the_bust_the_dog_asks_for_nothing(tmp_path):
     joined = " ".join(lines).lower()
     for nudge in ("kit up", "when you're ready", "again", "try"):
         assert nudge not in joined, f"post-bust line invites another go: {nudge!r}"
+
+
+def test_close_all_walks_every_open_position_out(tmp_path):
+    """The end-of-expedition exit, through the sanctioned sell path.
+
+    close_all is the only bulk exit, and it must go through the same
+    bounded per-position route the retrieve plan uses -- never a
+    transfer, never a position this engine did not open.
+    """
+    import asyncio
+
+    from engine.config import MarshConfig
+    from engine.events import EventLog
+    from engine.executor import SimExecutor
+    from engine.feed import FixtureFeed
+    from engine.hunt import HuntEngine
+    from engine.practice import load as load_marsh
+
+    config = MarshConfig(max_open_positions=3, daily_hunt_limit=3)
+    log = EventLog(str(tmp_path / "events.jsonl"))
+    feed = FixtureFeed(load_marsh("calm_day"))
+    engine = HuntEngine(config, feed, SimExecutor(feed), log, ghost=True)
+    engine.kit_up(1.0)
+    assert asyncio.run(engine.run_hunt()).shot
+
+    closed = asyncio.run(engine.close_all())
+    assert closed, "an open position must be walked out"
+    assert all(e["type"] == "walked" for e in closed), \
+        "a bulk exit is a walk, not a stop or a target"
+    assert not [p for p in engine.positions.values() if not p.closed]
+
+
+def test_close_all_leaves_a_position_it_cannot_price(tmp_path):
+    """Better an open position than one closed at a made-up number."""
+    import asyncio
+
+    from engine.config import MarshConfig
+    from engine.events import EventLog
+    from engine.executor import SimExecutor
+    from engine.feed import FixtureFeed
+    from engine.hunt import HuntEngine
+    from engine.practice import load as load_marsh
+
+    log = EventLog(str(tmp_path / "events.jsonl"))
+    feed = FixtureFeed(load_marsh("calm_day"))
+    engine = HuntEngine(MarshConfig(), feed, SimExecutor(feed), log, ghost=True)
+    engine.kit_up(1.0)
+    assert asyncio.run(engine.run_hunt()).shot
+
+    async def no_price(token, chain):
+        return 0.0
+
+    engine.feed.price = no_price
+    assert asyncio.run(engine.close_all()) == []
+    assert [p for p in engine.positions.values() if not p.closed]

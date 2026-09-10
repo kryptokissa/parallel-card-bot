@@ -440,6 +440,34 @@ class HuntEngine:
 
     # -- expedition bookkeeping -------------------------------------------
 
+    async def close_all(self, *, now: datetime | None = None) -> list[dict]:
+        """Bring every open position back to native, at the whistle.
+
+        The end of an expedition, or a hunter who wants out now. Each
+        position goes through the same exit path the retrieve plan
+        uses -- a bounded sell of a position this engine opened, no
+        recipient, no new authority -- and is logged as "walked",
+        because that is what it is: leaving with what is there rather
+        than a stop or a target being hit.
+
+        Priced at the current feed price so the gain recorded is the
+        real one. A position whose price cannot be read is left open
+        rather than closed at a number we cannot stand behind.
+        """
+        now = now or utcnow()
+        closed: list[dict] = []
+        for position in list(self.positions.values()):
+            if position.closed:
+                continue
+            price = await self.feed.price(position.token, position.chain)
+            if price <= 0 or position.entry_price_usd <= 0:
+                continue
+            gain = (price / position.entry_price_usd - 1.0) * 100.0
+            closed.append(await self._apply_exit_rule(
+                position, exit_rule="walked", gain=gain))
+        self._check_bust()
+        return closed
+
     def walk_out(self, amount_native: float) -> dict:
         """Bank loot to the main wallet — the win condition.
 

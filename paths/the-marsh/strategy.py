@@ -109,6 +109,126 @@ def _run_cli(argv: list[str]) -> None:
         sys.argv = saved
 
 
+# -- the host runner's door -------------------------------------------
+#
+# Everything above is the CLI door: practice range, live scouting, the
+# page contract. None of it can move funds, by design.
+#
+# This is the other door. The SDK runner scans the component module for
+# a concrete Strategy subclass, instantiates it with the wallet config
+# and a signing callback for the satchel, and drives it. Without a
+# class here the runner finds nothing and reports no live-shot mode --
+# which is exactly what it did, for every version up to this one. The
+# LiveExecutor was correct and completely unreachable.
+
+try:  # the base class only exists under the host runner
+    from wayfinder_paths.core.strategies.Strategy import Strategy as _Strategy
+except Exception:  # pragma: no cover - CLI runs never have it
+    _Strategy = None
+
+
+if _Strategy is not None:
+
+    class MarshStrategy(_Strategy):  # type: ignore[misc,valid-type]
+        """The Marsh, driven by the host runner, with real funds.
+
+        The satchel is the strategy wallet the hunter authorised; the
+        main wallet is never spent from here and only appears in
+        status. Gates, limits and the retrieve plan are the same code
+        the practice range runs -- this class supplies an executor
+        with trade authority and nothing else. It cannot widen a gate
+        or raise a size: those come from MarshConfig, and hunt_size
+        remains a ceiling the engine enforces.
+        """
+
+        name = "the-marsh"
+
+        def _engine(self, *, live: bool):
+            from engine.config import MarshConfig
+            from engine.events import EventLog
+            from engine.executor import LiveExecutor, SimExecutor
+            from engine.feed import CHAIN_IDS, WayfinderFeed
+            from engine.hunt import HuntEngine
+
+            config = MarshConfig()
+            feed = WayfinderFeed()
+            if live:
+                # No callback means no trade authority, and LiveExecutor
+                # refuses to exist without one -- so a misconfigured
+                # runner fails here rather than part-way through a hunt.
+                executor = LiveExecutor(
+                    self._get_strategy_wallet_address(),
+                    self.strategy_wallet_signing_callback,
+                    CHAIN_IDS,
+                )
+            else:
+                executor = SimExecutor(feed)
+            engine = HuntEngine(
+                config, feed, executor,
+                EventLog(os.environ.get(LOG_ENV, DEFAULT_LOG)),
+                ghost=not live,
+            )
+            engine.restore_from_log()
+            return engine
+
+        async def deposit(self, **kwargs):
+            """Kit up: register what the hunter put in the satchel."""
+            amount = float(kwargs.get("amount") or 0.0)
+            if amount <= 0:
+                return (False, "Nothing to kit up with.")
+            engine = self._engine(live=True)
+            engine.kit_up(amount)
+            return (True, f"Kitted up: {amount:g} in the satchel.")
+
+        async def update(self, **kwargs):
+            """One tick: apply the retrieve plan, then hunt if allowed.
+
+            Exits come first on purpose. A tick that both closes a
+            position and opens one should bank the old bird before
+            reaching for the next.
+            """
+            engine = self._engine(live=True)
+            exits = await engine.check_positions()
+            result = await engine.run_hunt()
+            if result.shot and result.position:
+                return (True, f"Shot ${result.position.symbol}; "
+                              f"{len(exits)} exit(s) applied.")
+            reason = result.refusal_reason or "no duck passed"
+            return (True, f"No shot: {reason}. {len(exits)} exit(s) applied.")
+
+        async def exit(self, **kwargs):
+            """Bring every open position back to native and walk out."""
+            engine = self._engine(live=True)
+            closed = await engine.close_all()
+            return (True, f"Walked out. {len(closed)} position(s) closed.")
+
+        async def _status(self, **kwargs):
+            engine = self._engine(live=True)
+            open_positions = [p for p in engine.positions.values()
+                              if not p.closed]
+            state = marsh_engine.replay(_events())
+            return {
+                "portfolio_value": float(engine.bankroll_native),
+                "net_deposit": float(engine.bankroll_native),
+                "gas_available": float(engine.bankroll_native),
+                "gassed_up": engine.bankroll_native > 0,
+                "strategy_status": {
+                    "open_positions": [
+                        {"symbol": p.symbol, "token": p.token,
+                         "size_native": p.size_native,
+                         "entry_price_usd": p.entry_price_usd}
+                        for p in open_positions
+                    ],
+                    "hunter": state.to_dict().get("hunter", {}),
+                },
+            }
+
+        @staticmethod
+        async def policies() -> list[str]:
+            """What the satchel is allowed to do, for the wallet policy."""
+            return ["swap"]
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
