@@ -105,3 +105,22 @@ def test_skill_instructions_use_the_supported_wrapper(tmp_path):
     machinery = text[text.index("## Machinery"):]
     assert "python scripts/wf_run.py hunt" in machinery
     assert "Do not route these through" not in machinery
+
+
+def test_state_names_the_save_file_it_read(tmp_path):
+    """Two save files, so a sheet must say whose it is.
+
+    Practice and live keep separate logs. A state report that named
+    neither made a full practice history and an empty live sheet look
+    like contradictory readings of one store.
+    """
+    proc = _run("state", tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert "save_file" in payload
+    assert payload["save_file_is"] in (
+        "the real marsh", "the practice range", "the save file you named")
+    assert "events_read" in payload
+    # MARSH_EVENT_LOG is set by _run, so it must report the named file
+    assert payload["save_file_is"] == "the save file you named"
+    assert payload["save_file"].endswith("events.jsonl")

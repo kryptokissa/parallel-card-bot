@@ -116,9 +116,26 @@ async def cmd_whistle(args) -> None:
     _print_events(engine.log.read()[before:])
 
 
+def _store_label(args) -> tuple[str, str]:
+    """Which save file this command is about to read, and its name.
+
+    Practice and live keep separate logs on purpose -- a practice bust
+    should never dent a real record. But a report that does not say
+    which one it read turns "nothing happened here" into "nothing ever
+    happened", which is how a full practice history and an empty live
+    sheet came to look like a contradiction.
+    """
+    path = _log_path(args.ghost)
+    if os.environ.get("MARSH_EVENT_LOG"):
+        return path, "the save file you named"
+    return path, "the practice range" if args.ghost else "the real marsh"
+
+
 def cmd_recap(args) -> None:
-    events = marsh_engine.load_events(_log_path(args.ghost))
+    path, label = _store_label(args)
+    events = marsh_engine.load_events(path)
     print(f"  🐕 {tell_recap(events, args.expedition)}")
+    print(f"     ({label}: {path})")
 
 
 def _configured_wallets() -> tuple[list[str], str]:
@@ -203,9 +220,15 @@ def cmd_preflight(args) -> None:
 
 
 def cmd_state(args) -> None:
-    events = marsh_engine.load_events(_log_path(args.ghost))
+    path, label = _store_label(args)
+    events = marsh_engine.load_events(path)
     state = marsh_engine.replay(events)
-    print(json.dumps(state.to_dict(), indent=2, default=str))
+    # Name the save file in the output. A character sheet that does
+    # not say whose it is invites the reader to assume it is the only
+    # one, and there are two.
+    payload = {"save_file": path, "save_file_is": label,
+               "events_read": len(events), **state.to_dict()}
+    print(json.dumps(payload, indent=2, default=str))
 
 
 def main() -> None:
