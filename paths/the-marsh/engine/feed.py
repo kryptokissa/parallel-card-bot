@@ -50,6 +50,7 @@ BIOMES = {
 }
 
 CHAIN_IDS = {"solana": 900}
+_NATIVE_ADDR_SOL = "So11111111111111111111111111111111111111112"
 
 # Token-2022 extensions that are fine on a duck; anything else on the
 # mint is fine print in the feathers (bad water).
@@ -164,7 +165,12 @@ class WayfinderFeed:
 
     safety_is_free = False
 
-    def __init__(self) -> None:
+    def __init__(self, quote_wallet: str | None = None) -> None:
+        # A quote needs a from_wallet to price a route. It is never
+        # spent from and never signed for -- quoting is read-only --
+        # but using the hunter's own satchel makes the quote the one
+        # their swap will actually get.
+        self.quote_wallet = quote_wallet
         # No SDK client objects are held: the feed talks to the
         # Wayfinder REST API directly (see _get/_rpc). That keeps the
         # pack working across SDK releases instead of binding to a
@@ -256,6 +262,24 @@ class WayfinderFeed:
             "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
         })
         return (payload or {}).get("result")
+
+    async def quote_swap(self, from_token: str, to_token: str, chain: str,
+                         amount_raw: str, slippage_bps: int) -> dict[str, Any]:
+        """A real BRAP quote, for sizing a decision the hunter will run.
+
+        Read-only: quoting signs nothing and moves nothing. The route
+        it returns is what the agent's own swap tool will price, so
+        the impact the gate sees is the impact the shot would pay.
+        """
+        raw = await self._get("blockchain/braps/quote/", {
+            "from_token": from_token, "to_token": to_token,
+            "from_chain": CHAIN_IDS[chain], "to_chain": CHAIN_IDS[chain],
+            "from_wallet": self.quote_wallet or _NATIVE_ADDR_SOL,
+            "from_amount": amount_raw,
+            "slippage": slippage_bps / 10_000.0,
+        })
+        best = raw.get("best_quote")
+        return best if isinstance(best, dict) else {}
 
     # -- DuckFeed ----------------------------------------------------------
 
@@ -410,6 +434,19 @@ class FixtureFeed:
             allowed = {f.name for f in Duck.__dataclass_fields__.values()}
             ducks.append(Duck(**{k: v for k, v in row.items() if k in allowed}))
         return ducks
+
+    async def quote_swap(self, from_token: str, to_token: str, chain: str,
+                         amount_raw: str, slippage_bps: int) -> dict[str, Any]:
+        """A practice quote, shaped like a real one.
+
+        The decide path prices every shot through the feed, so the
+        practice range needs to answer the same question the live one
+        does -- otherwise the whole decide-and-hand-over flow is
+        untestable without spending real money to see it work.
+        """
+        impact = float(self.fixture.get("price_impact_pct", 1.0))
+        return {"quote": {"priceImpact": impact},
+                "output_validation": {"price_usd": 0.0, "decimals": 9}}
 
     async def safety_check(self, duck: Duck) -> Duck:
         return duck  # fixtures carry their safety facts inline

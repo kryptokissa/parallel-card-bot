@@ -102,6 +102,40 @@ the hunt: say so plainly and stop. The same commands run against
 `path/strategy.py` directly if, and only if, your runtime policy allows
 it; the wrapper is the supported route.
 
+## Taking a real shot
+On Wayfinder a path decides and the hunter's agent executes. This pack
+holds no keys and is never handed a signer, so it cannot swap and must
+never imply it can. YOU run the swap, with your own wallet and your
+own `onchain_swap` tool.
+
+    python scripts/wf_run.py live --satchel <your solana address>
+
+That scouts the real marsh, holds every gate, prices the shot against
+a real BRAP quote, and prints the exact `onchain_swap` arguments. The
+satchel address only prices the route; nothing is signed or sent.
+
+Then, in order:
+
+1. Quote it yourself first with `onchain_quote_swap` and read the
+   route back to the hunter before touching anything.
+2. Run `onchain_swap` with those arguments and your own wallet label.
+   The quote goes stale in three minutes; past that, hunt again
+   rather than running an old one.
+3. Record what actually happened:
+   `python scripts/wf_run.py record --tx <signature> --price-usd <fill>`
+   No position exists until this runs, and without a fill price there
+   is no stop — the log stays honest about what was executed rather
+   than what was suggested.
+   Didn't take it? `python scripts/wf_run.py record --abandon`.
+4. Whistle on a schedule: `python scripts/wf_run.py whistle`. It reads
+   the live price, applies the retrieve plan, and prints the exits you
+   must run. A position opened this way still owes its stop, its
+   targets and its time stop; leaving those to someone watching a
+   chart is how a rules-based hunt becomes a discretionary one.
+
+Never pick a duck yourself, never widen a gate, never raise a size the
+dog didn't ask for. The gates are the product.
+
 ## Before real money
 Run `preflight` and read it out to the hunter before they fund
 anything. It answers three separate questions — whether the runtime

@@ -165,6 +165,40 @@ def solana_submission_available() -> tuple[bool, str]:
     return True, ""
 
 
+class QuoteOnlyExecutor:
+    """Prices a shot for real, and cannot take one.
+
+    Used when the path decides and the hunter's agent executes. The
+    impact gate needs a genuine BRAP quote or it is guessing, but this
+    process has no signer and no business having one, so buy and sell
+    are not merely unimplemented -- they refuse, loudly, and no code
+    path here can reach a broadcast.
+    """
+
+    safety_is_free = False
+
+    def __init__(self, feed):
+        self.feed = feed
+
+    async def quote_impact_pct(self, token: str, chain: str,
+                               size_native: float) -> float:
+        raw = _native_to_raw(size_native, chain)
+        best = await self.feed.quote_swap(
+            _native_addr(chain), token, chain, raw, 100)
+        return quote_impact_pct_from(best)
+
+    async def buy(self, token: str, chain: str, size_native: float,
+                  max_slippage_pct: float) -> Fill:
+        return Fill(ok=False, reason="this pack cannot execute; the "
+                                     "hunter's agent runs the swap")
+
+    async def sell(self, token: str, chain: str, fraction: float,
+                   max_slippage_pct: float) -> Fill:
+        clamp_fraction(fraction)
+        return Fill(ok=False, reason="this pack cannot execute; the "
+                                     "hunter's agent runs the swap")
+
+
 class LiveExecutor:
     """Live execution through BRAP from the satchel wallet only.
 

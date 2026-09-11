@@ -77,6 +77,7 @@ class HuntResult:
     scouted: int = 0
     failures: dict[str, int] = field(default_factory=dict)
     refusal_reason: str = ""
+    decision: Any = None   # a Decision the hunter's agent must execute
 
 
 class HuntEngine:
@@ -192,7 +193,7 @@ class HuntEngine:
 
     # -- the hunt ---------------------------------------------------------
 
-    async def run_hunt(self) -> HuntResult:
+    async def run_hunt(self, *, decide_only: bool = False) -> HuntResult:
         config = self._config  # frozen snapshot for this hunt
         hunt_id = uuid.uuid4().hex[:10]
         now = utcnow()
@@ -297,6 +298,29 @@ class HuntEngine:
             config.max_price_impact_pct,
             duck.recommended_slippage_pct or config.max_price_impact_pct,
         )
+
+        if decide_only:
+            # This pack cannot execute and must not pretend to: on
+            # Wayfinder a path decides and the hunter's agent executes,
+            # with its own wallet and its own swap tool. So the hunt
+            # ends here, at a fully specified shot, and no position
+            # opens until a real fill is recorded against it.
+            from .decision import buy_decision  # noqa: PLC0415
+
+            decision = buy_decision(
+                duck, size, int(round(max_slippage * 100)),
+                hunt_id=hunt_id, impact_pct=impact,
+                price_usd=duck.price_usd or 0.0,
+            )
+            self.log.emit("decision", hunt_id=hunt_id, kind="buy",
+                          token=duck.token, symbol=duck.symbol,
+                          size=size, heat=duck.heat, biome=duck.biome,
+                          slippage_bps=decision.slippage_bps,
+                          price_impact_pct=impact, ghost=self.ghost)
+            return HuntResult(hunt_id=hunt_id, shot=False, scouted=len(ducks),
+                              failures=failures, decision=decision,
+                              refusal_reason="awaiting the hunter's agent")
+
         fill = await self.executor.buy(duck.token, config.chain, size,
                                        max_slippage)
         if not fill.ok:
@@ -349,6 +373,64 @@ class HuntEngine:
                           scouted=len(ducks), failures=failures)
 
     # -- exits ------------------------------------------------------------
+
+    def _exit_rule_for(self, position: Position, gain: float,
+                       held_hours: float, config: MarshConfig
+                       ) -> tuple[str, float] | None:
+        """Which retrieve rule fires now, and what fraction it sells.
+
+        One reading of the plan, used by both the executing path and
+        the decide-only path, so a hunter whose agent runs the swaps
+        gets exactly the exits a hunter with a signer would get.
+        """
+        if gain <= config.stop_loss_pct:
+            return ("stopped", 1.0)
+        if gain >= config.retrieve_2_pct:
+            return ("retrieved", 1.0)
+        if gain >= config.retrieve_1_pct and not position.retrieve_1_done:
+            return ("partial_retrieve", config.retrieve_1_fraction)
+        if (held_hours >= config.time_stop_hours
+                and config.time_stop_low_pct <= gain <= config.time_stop_high_pct):
+            return ("walked", 1.0)
+        return None
+
+    async def decide_exits(self, *, now: datetime | None = None) -> list:
+        """The exits the hunter's agent should run, without running them.
+
+        The mirror of run_hunt(decide_only=True). A position opened
+        through an agent still needs its stop, its targets and its
+        time stop -- leaving those to a human watching a chart is how
+        a rules-based hunt turns into a discretionary one.
+        """
+        from .decision import sell_decision  # noqa: PLC0415
+
+        config = self._config
+        now = now or utcnow()
+        out = []
+        for position in list(self.positions.values()):
+            if position.closed:
+                continue
+            price = await self.feed.price(position.token, position.chain)
+            if price <= 0 or position.entry_price_usd <= 0:
+                continue
+            gain = (price / position.entry_price_usd - 1.0) * 100.0
+            held_hours = (now - position.opened_at).total_seconds() / 3600.0
+            fired = self._exit_rule_for(position, gain, held_hours, config)
+            if fired is None:
+                continue
+            rule, fraction = fired
+            decision = sell_decision(
+                position, fraction, rule,
+                int(round(config.max_price_impact_pct * 100)))
+            decision.expected_price_usd = price
+            decision.heat = round(gain, 1)   # carries the gain for narration
+            out.append(decision)
+            self.log.emit("decision", kind="sell", rule=rule,
+                          position_id=position.position_id,
+                          token=position.token, symbol=position.symbol,
+                          sell_fraction=fraction, gain_pct=round(gain, 1),
+                          ghost=self.ghost)
+        return out
 
     async def check_positions(self, *, now: datetime | None = None) -> list[dict]:
         """Apply the retrieve plan. Called on schedule (the whistle)."""

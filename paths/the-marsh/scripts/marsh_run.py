@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import sys
+import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -109,7 +110,151 @@ async def cmd_hunt(args) -> None:
         pass  # the narration above already told it straight
 
 
+async def cmd_live(args) -> None:
+    """Scout the real marsh and hand the hunter's agent a shot to run.
+
+    This pack cannot execute and does not pretend to. It scouts, holds
+    every gate, sizes the shot against a real BRAP quote, and stops --
+    printing exactly what to swap. The agent runs it with its own
+    wallet and its own tool; nothing here signs or sends. No position
+    opens until a real fill is recorded against the decision.
+    """
+    from engine.decision import write_pending  # noqa: PLC0415
+    from engine.executor import QuoteOnlyExecutor  # noqa: PLC0415
+    from engine.feed import WayfinderFeed  # noqa: PLC0415
+
+    log = EventLog(_log_path(False))
+    config = MarshConfig()
+    feed = WayfinderFeed(quote_wallet=args.satchel)
+    engine = HuntEngine(config, feed, QuoteOnlyExecutor(feed), log, ghost=False)
+    engine.restore_from_log()
+    if engine.bankroll_native <= 0:
+        engine.kit_up(args.kit if args.kit else config.hunt_size * 3)
+
+    before = len(log.read())
+    result = await engine.run_hunt(decide_only=True)
+    _print_events(log.read()[before:])
+
+    if result.decision is None:
+        return
+    d = result.decision
+    write_pending(_log_path(False), d)
+    print()
+    print(f"  \U0001f415 That one's worth a shell. ${d.symbol} in {d.biome}, "
+          f"level {int(d.heat)} duck.")
+    print("     I can't pull the trigger — you hold the gun. Run this:")
+    print()
+    print(json.dumps(d.agent_call(), indent=2))
+    print()
+    print(f"     Price impact on that route: {d.price_impact_pct:.2f}%. "
+          f"Quote goes stale in 3 minutes.")
+    print("     When it lands, tell me:")
+    print("       python scripts/wf_run.py record --tx <signature> "
+          "[--price-usd <fill price>]")
+    print("     If you don't take it:  "
+          "python scripts/wf_run.py record --abandon")
+
+
+def cmd_record(args) -> None:
+    """Record what the agent's swap actually did, or abandon the shot.
+
+    The position opens here and nowhere else. A decision is a proposal
+    until a real transaction is named against it, which keeps the log
+    honest about what was actually executed rather than what was
+    suggested.
+    """
+    from engine.decision import clear_pending, read_pending  # noqa: PLC0415
+
+    log_path = _log_path(False)
+    decision = read_pending(log_path)
+    if decision is None:
+        print("  \U0001f415 Nothing pending. No shot to record.")
+        raise SystemExit(1)
+
+    if args.abandon:
+        clear_pending(log_path)
+        print(f"  \U0001f415 Left ${decision.symbol} on the water. "
+              f"Nothing spent.")
+        return
+
+    if not args.tx:
+        print("  \U0001f415 I need the transaction to record a shot: "
+              "--tx <signature>")
+        raise SystemExit(2)
+
+    log = EventLog(log_path)
+    config = MarshConfig()
+    price = args.price_usd if args.price_usd else decision.expected_price_usd
+    if price <= 0:
+        # Exits are measured against entry; a zero entry disables the
+        # whole retrieve plan silently. Refuse rather than open a
+        # position with no stop.
+        print("  \U0001f415 I need the fill price to set the plan: "
+              "--price-usd <usd per token>. Without it there's no stop.")
+        raise SystemExit(2)
+
+    position_id = uuid.uuid4().hex[:10]
+    size = float(decision.amount)
+    log.emit("shot", hunt_id=decision.hunt_id, position_id=position_id,
+             token=decision.token, symbol=decision.symbol,
+             chain=decision.chain, entry_price_usd=price, size=size,
+             tx=args.tx, heat=decision.heat, biome=decision.biome,
+             graduated=False, weather="Calm")
+    log.emit("retrieve_plan", position_id=position_id, token=decision.token,
+             rules={
+                 "retrieve_1": {"gain_pct": config.retrieve_1_pct,
+                                "sell_fraction": config.retrieve_1_fraction},
+                 "retrieve_2": {"gain_pct": config.retrieve_2_pct},
+                 "stop_loss": {"gain_pct": config.stop_loss_pct},
+                 "time_stop": {"hours": config.time_stop_hours,
+                               "low_pct": config.time_stop_low_pct,
+                               "high_pct": config.time_stop_high_pct},
+             })
+    clear_pending(log_path)
+    print(f"  \U0001f415 Marked. ${decision.symbol} at {price:g}, "
+          f"{size:g} in. {args.tx}")
+    print(f"     The plan, plain: half at +{config.retrieve_1_pct:g}%, "
+          f"everything at +{config.retrieve_2_pct:g}%, "
+          f"bail at {config.stop_loss_pct:g}%, and if it's floating there "
+          f"in {config.time_stop_hours:g} hours, I walk.")
+    print("     Whistle me when you want the plan checked: "
+          "python scripts/wf_run.py whistle")
+
+
 async def cmd_whistle(args) -> None:
+    if not args.ghost and not args.live_feed:
+        # A real position still needs its stop, its targets and its
+        # time stop. This pack cannot sell, so the whistle reports the
+        # exits the hunter's agent must run -- leaving them to someone
+        # watching a chart is how a rules-based hunt becomes a
+        # discretionary one.
+        from engine.executor import QuoteOnlyExecutor  # noqa: PLC0415
+        from engine.feed import WayfinderFeed  # noqa: PLC0415
+
+        log = EventLog(_log_path(False))
+        feed = WayfinderFeed(quote_wallet=args.satchel)
+        engine = HuntEngine(MarshConfig(), feed, QuoteOnlyExecutor(feed),
+                            log, ghost=False)
+        engine.restore_from_log()
+        before = len(log.read())
+        decisions = await engine.decide_exits()
+        _print_events(log.read()[before:])
+        if not decisions:
+            print("  \U0001f415 Checked the plan. Nothing to do yet.")
+            return
+        for d in decisions:
+            what = ("all of it" if d.reason != "partial_retrieve"
+                    else "half of it")
+            print()
+            print(f"  \U0001f415 ${d.symbol}: {d.reason}, {d.heat:+g}%. "
+                  f"Time to bring {what} back.")
+            print("     You hold the gun. Run this:")
+            print(json.dumps(d.agent_call(), indent=2))
+            print("     amount is the token quantity to sell — your agent "
+                  "knows the balance; sell "
+                  f"{'100%' if d.reason != 'partial_retrieve' else '50%'} "
+                  "of the position.")
+        return
     engine = await _build_engine(args)
     before = len(engine.log.read())
     await engine.check_positions()
@@ -256,7 +401,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="marsh_run")
     parser.add_argument("command",
                         choices=["hunt", "whistle", "recap", "state",
-                                 "preflight"])
+                                 "preflight", "live", "record"])
     parser.add_argument("--ghost", action="store_true",
                         help="practice range: fixture feed, no funds")
     parser.add_argument("--live-feed", action="store_true",
@@ -270,6 +415,16 @@ def main() -> None:
     parser.add_argument("--kit", type=float, default=None,
                         help="ghost-mode satchel size")
     parser.add_argument("--expedition", type=int, default=1)
+    parser.add_argument("--satchel", default=None,
+                        help="satchel address, so the quote prices the "
+                             "route your agent will actually swap")
+    parser.add_argument("--tx", default=None,
+                        help="the signature your agent's swap returned")
+    parser.add_argument("--price-usd", type=float, default=None,
+                        dest="price_usd",
+                        help="USD per token actually filled at")
+    parser.add_argument("--abandon", action="store_true",
+                        help="drop the pending shot without taking it")
     args = parser.parse_args()
     if args.live_feed:
         args.ghost = True  # live-feed runs are practice: ghost log, sim fills
@@ -284,6 +439,10 @@ def main() -> None:
         cmd_state(args)
     elif args.command == "preflight":
         cmd_preflight(args)
+    elif args.command == "live":
+        asyncio.run(cmd_live(args))
+    elif args.command == "record":
+        cmd_record(args)
 
 
 if __name__ == "__main__":

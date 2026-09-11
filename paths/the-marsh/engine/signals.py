@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 SLUG = "the-marsh"
-VERSION = "0.1.18"
+VERSION = "0.2.0"
 
 
 def format_signal(event: dict[str, Any], dog_name: str = "Biscuit"
