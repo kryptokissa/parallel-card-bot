@@ -61,15 +61,30 @@ Details and the reasoning behind each: `references/evidence-rules.md`.
 
 ## Start here, every time
 
-Build the target packet before anything else. It costs one batch and it is
-what keeps the rest of the run about the right token:
+Run the pass. **Do not ask the user for an RPC endpoint and do not stop
+because one is unset** — the Wayfinder runtime provides a read endpoint per
+chain, and the command resolves it. Only a standalone run outside the
+runtime needs `--rpc`, and the command will say so itself if that is the
+case.
+
+```
+python path/scripts/main.py report eip155:<chainId>:<address> \
+  --question "<the decision>" --out report.json
+```
+
+That is the whole pass: it verifies the chain id, pins the block, resolves
+the executing implementation behind any proxy, capability-scans that
+runtime, rates the surfaces the evidence supports, marks every surface it
+did not reach `not_checked`, and self-validates before emitting.
+
+Use `packet` instead when you want the target packet alone, without ratings:
 
 ```
 python path/scripts/main.py packet eip155:<chainId>:<address> \
-  --rpc "$EVM_RPC_URL" --question "<the decision>" --out packet.json
+  --question "<the decision>" --out packet.json
 ```
 
-That verifies the chain id, pins the block with its header, resolves
+Either verifies the chain id, pins the block with its header, resolves
 metadata (or records it unresolved), hashes the runtime, walks the standard
 proxy slots, resolves the executing implementation and upgrade authority,
 and emits a target-integrity manifest. Quote the `packet_digest` in
@@ -116,7 +131,8 @@ behaviour (Uniswap v3/v4, launch platforms such as Pons, Robinhood Chain):
 All read-only; none of them can sign or broadcast.
 
 ```
-python path/scripts/main.py packet <target> --rpc <url>     # pinned target packet + manifest
+python path/scripts/main.py report <target>                 # the whole pass, self-validated
+python path/scripts/main.py packet <target>                 # pinned target packet + manifest
 python path/scripts/main.py scan --hex 0x60806040…          # capability scan of runtime
 python path/scripts/main.py pool v3 <t0> <t1> --factory <f> --fee 3000
 python path/scripts/main.py pool v4 <c0> <c1> --fee 3000 --tick-spacing 60 --hooks <h>
@@ -125,10 +141,17 @@ python scripts/assay_validate.py manifest.json --report report.json
 python path/scripts/main.py example <id>                    # synthetic worked examples
 ```
 
-`EVM_RPC_URL` is whatever endpoint the user supplies; the pack never ships
-one and redacts credentials out of everything it writes down. An archive
-endpoint is needed for historical replay — say so plainly when you do not
-have one, and mark the affected checks unknown.
+**Endpoints resolve themselves.** On Wayfinder the runtime already provides
+a read endpoint per chain, and the commands use it; there is nothing to
+configure and nothing to ask the user for. Precedence is `--rpc`, then
+`EVM_RPC_URL`, then the host. A missing endpoint is never a reason to stop
+before running: the command emits a coverage limitation naming the remedy,
+and that is the thing to report.
+
+The pack ships no endpoint of its own and redacts credentials out of
+everything it writes down. An archive endpoint is needed for historical
+replay — say so plainly when you do not have one, and mark the affected
+checks unknown.
 
 ## Output
 
