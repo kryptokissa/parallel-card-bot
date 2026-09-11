@@ -63,21 +63,61 @@ def test_live_engine_refuses_without_a_signing_callback():
         strat._engine(live=True)
 
 
-def test_live_engine_refuses_without_a_satchel_address():
+def test_live_engine_refuses_when_no_wallet_can_be_identified():
     cls = _component().MarshStrategy
     strat = cls({}, strategy_wallet_signing_callback=lambda tx: b"")
     with pytest.raises(ValueError, match="strategy_wallet"):
         strat._engine(live=True)
 
 
-def test_the_satchel_address_is_the_one_that_reaches_the_executor():
-    """The engine must spend from the wallet the hunter authorised."""
+def _signer(address="SatchelWallet111", chain_type="solana"):
+    """A callback shaped like the SDK's: it carries its own wallet."""
+    async def sign(tx):
+        return b""
+    sign.wallet_address = address
+    if chain_type is not None:
+        sign.chain_type = chain_type
+    return sign
+
+
+def test_the_satchel_comes_from_the_signer_not_a_label(): 
+    """Wallet labels are generated per install, so none may be assumed.
+
+    get_strategy_config also fills strategy_wallet from the local
+    config file only, so for anyone on Wayfinder-managed wallets that
+    key is absent entirely. The signer knows which wallet it signs
+    for; that is the answer.
+    """
     cls = _component().MarshStrategy
-    strat = cls({"strategy_wallet": {"address": "SatchelWallet111"},
-                 "main_wallet": {"address": "MainWallet999"}},
-                strategy_wallet_signing_callback=lambda tx: b"")
+    strat = cls({}, strategy_wallet_signing_callback=_signer(
+        "ManagedSatchelAddr", "solana"))
     engine = strat._engine(live=True)
-    assert engine.executor.satchel == "SatchelWallet111"
+    assert engine.executor.satchel == "ManagedSatchelAddr"
+
+
+def test_an_evm_leg_is_refused_rather_than_traded():
+    """A ring shares one label across its EVM and Solana legs."""
+    cls = _component().MarshStrategy
+    strat = cls({}, strategy_wallet_signing_callback=_signer(
+        "0xEvmLegAddress", "ethereum"))
+    with pytest.raises(ValueError, match="hunts Solana"):
+        strat._engine(live=True)
+
+
+def test_an_explicit_config_address_still_works():
+    cls = _component().MarshStrategy
+    sign = _signer(address=None, chain_type=None)
+    strat = cls({"strategy_wallet": {"address": "ConfiguredSatchel"}},
+                strategy_wallet_signing_callback=sign)
+    assert strat._engine(live=True).executor.satchel == "ConfiguredSatchel"
+
+
+def test_the_main_wallet_never_reaches_the_executor():
+    cls = _component().MarshStrategy
+    strat = cls({"main_wallet": {"address": "MainWallet999"}},
+                strategy_wallet_signing_callback=_signer("SatchelAddr"))
+    engine = strat._engine(live=True)
+    assert engine.executor.satchel == "SatchelAddr"
     assert "MainWallet999" not in repr(engine.executor.__dict__), \
         "the main wallet must never reach the executor"
 

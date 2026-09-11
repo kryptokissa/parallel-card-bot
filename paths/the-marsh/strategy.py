@@ -143,6 +143,37 @@ if _Strategy is not None:
 
         name = "the-marsh"
 
+        def _satchel_address(self) -> str:
+            """The wallet the satchel actually is, however it was named.
+
+            Wallet labels are generated per install -- one hunter's
+            satchel is "thoughtful-lush-narwhal-of-bliss" -- so nothing
+            here may depend on a name. Worse, get_strategy_config
+            builds config["strategy_wallet"] from the local config file
+            only, so for anyone using Wayfinder-managed wallets (which
+            is everyone) that key is simply absent.
+
+            The signing callback knows. It was built for one specific
+            wallet and carries its address, and it is the thing that
+            will actually sign -- so it is the authoritative answer,
+            not a guess from a name or a file.
+            """
+            callback = self.strategy_wallet_signing_callback
+            chain_type = getattr(callback, "chain_type", None)
+            if chain_type is not None and str(chain_type).lower() != "solana":
+                # An EVM leg of the same ring would sign, and spend the
+                # wrong wallet. Refuse rather than trade the wrong leg.
+                raise ValueError(
+                    "the satchel signer is a "
+                    f"{chain_type} wallet; The Marsh hunts Solana. "
+                    "Point it at the ring's Solana leg."
+                )
+            address = getattr(callback, "wallet_address", None)
+            if address:
+                return str(address)
+            # Explicitly configured address, if the host provided one.
+            return self._get_strategy_wallet_address()
+
         def _engine(self, *, live: bool):
             from engine.config import MarshConfig
             from engine.events import EventLog
@@ -157,7 +188,7 @@ if _Strategy is not None:
                 # refuses to exist without one -- so a misconfigured
                 # runner fails here rather than part-way through a hunt.
                 executor = LiveExecutor(
-                    self._get_strategy_wallet_address(),
+                    self._satchel_address(),
                     self.strategy_wallet_signing_callback,
                     CHAIN_IDS,
                 )

@@ -109,6 +109,21 @@ can broadcast at all, whether a satchel wallet is configured, and who
 holds trade authority — and exits non-zero unless the first two pass.
 Never read a single line of it as "cleared to trade".
 
+### Wallets
+Nothing here depends on a wallet being called anything. Labels are
+generated per install — one hunter's satchel is
+"thoughtful-lush-narwhal-of-bliss" — so the satchel is taken from the
+signing callback the runner supplies, which carries the address of the
+wallet it signs for. A ring's EVM leg is refused rather than traded;
+The Marsh hunts Solana.
+
+The Marsh never spends from the main wallet. Walking out is
+bookkeeping — it logs the amount and moves nothing — so no signer for
+the main wallet is needed by anything in this pack. If the host runner
+insists on resolving one before it will start (it looks for the label
+"main"), that is the host's requirement, not the hunt's, and it is
+satisfied by naming any wallet as the main one.
+
 Trade authority is the one that never changes: this wrapper holds no
 keys and is never handed the host runner's signing callback, so it
 cannot take a live shot whatever else is true. Live shots run under
