@@ -139,30 +139,51 @@ def cmd_recap(args) -> None:
 
 
 def _configured_wallets() -> tuple[list[str], str]:
-    """Wallet labels the runtime knows about, and where they came from.
+    """Wallet labels the RUNNER can resolve, asked the runner's way.
 
     The pack never holds keys. The host runner resolves a wallet by
-    label out of the Wayfinder runtime config and hands the engine a
-    signing callback for it; the satchel is that wallet. Reading the
-    labels is enough to say whether a satchel exists at all, which is
-    the question worth answering before anyone funds one.
+    label and hands the engine a signing callback for it; the satchel
+    is that wallet. So this has to ask the same question the runner
+    asks -- ``load_wallets()``, which is the local config file PLUS
+    the remote wallets Wayfinder custodies for this instance.
+
+    Reading only the local config was wrong: it reported no satchel
+    while two managed wallets sat there, reachable, because they live
+    on the remote side.
     """
+    labels: list[str] = []
     try:
-        from wayfinder_paths.core.config import CONFIG
+        import asyncio  # noqa: PLC0415
+
+        from wayfinder_paths.core.utils.wallets import load_wallets  # noqa: PLC0415
+
+        wallets = asyncio.run(load_wallets())
+        labels = sorted({str(w.get("label")) for w in wallets if w.get("label")})
+        if labels:
+            return labels, "local config + wallets Wayfinder holds for you"
+    except Exception as exc:  # no SDK, no network, no credentials
+        note = f"could not ask the runner ({type(exc).__name__})"
+    else:
+        note = "local config + wallets Wayfinder holds for you"
+
+    # Fall back to the config file alone, and say so, rather than
+    # claiming nothing exists when we simply could not look.
+    try:
+        from wayfinder_paths.core.config import CONFIG  # noqa: PLC0415
     except Exception:
         path = (os.environ.get("WAYFINDER_CONFIG_PATH")
                 or os.environ.get("WAYFINDER_CONFIG"))
         if not path or not os.path.exists(path):
-            return [], "no runtime config found"
+            return [], f"{note}; no runtime config found either"
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 CONFIG = json.load(fh)
         except (OSError, ValueError) as exc:
-            return [], f"config unreadable ({exc})"
+            return [], f"{note}; config unreadable ({exc})"
     wallets = CONFIG.get("wallets") or []
-    labels = [str(w.get("label")) for w in wallets if isinstance(w, dict)
-              and w.get("label")]
-    return labels, "runtime config"
+    labels = sorted({str(w.get("label")) for w in wallets
+                     if isinstance(w, dict) and w.get("label")})
+    return labels, note
 
 
 def cmd_preflight(args) -> None:
