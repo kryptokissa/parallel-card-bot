@@ -86,3 +86,33 @@ def test_policies_ask_only_for_swap():
     """The satchel needs to swap. It never needs to transfer."""
     cls = _component().MarshStrategy
     assert asyncio.run(cls.policies()) == ["swap"]
+
+
+def test_deposit_accepts_the_kwarg_the_runner_actually_sends():
+    """run_strategy calls deposit(main_token_amount=..., gas_token_amount=...).
+
+    Reading only "amount" made every deposit through the runner look
+    like zero and get refused -- the first real command would have
+    failed for a reason that had nothing to do with the hunter.
+    """
+    cls = _component().MarshStrategy
+    strat = cls({"strategy_wallet": {"address": "Satchel111"}},
+                strategy_wallet_signing_callback=lambda tx: b"")
+
+    seen = {}
+
+    class FakeEngine:
+        bankroll_native = 0.0
+
+        def kit_up(self, amount):
+            seen["amount"] = amount
+
+    strat._engine = lambda *, live: FakeEngine()
+
+    ok, msg = asyncio.run(strat.deposit(main_token_amount=0.05,
+                                        gas_token_amount=0.0))
+    assert ok, msg
+    assert seen["amount"] == 0.05
+
+    ok, msg = asyncio.run(strat.deposit(main_token_amount=0.0))
+    assert not ok and "Nothing to kit up" in msg

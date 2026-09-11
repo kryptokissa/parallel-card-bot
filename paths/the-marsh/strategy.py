@@ -172,8 +172,17 @@ if _Strategy is not None:
             return engine
 
         async def deposit(self, **kwargs):
-            """Kit up: register what the hunter put in the satchel."""
-            amount = float(kwargs.get("amount") or 0.0)
+            """Kit up: register what the hunter put in the satchel.
+
+            The runner passes the size as ``main_token_amount``; only
+            reading ``amount`` meant every deposit through it looked
+            like zero and was refused. Both names are accepted now.
+            """
+            amount = float(
+                kwargs.get("main_token_amount")
+                or kwargs.get("amount")
+                or 0.0
+            )
             if amount <= 0:
                 return (False, "Nothing to kit up with.")
             engine = self._engine(live=True)
