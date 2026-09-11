@@ -96,10 +96,11 @@ limitations rather than as results.
 
 ```bash
 # the whole pass in one command: collect, rate, self-validate, emit
-python scripts/main.py report eip155:1:0xYourToken --rpc "$EVM_RPC_URL" --out report.json
+# (on Wayfinder the endpoint resolves itself; add --rpc only when standalone)
+python scripts/main.py report eip155:1:0xYourToken --out report.json
 
 # just the pinned target packet plus its integrity manifest
-python scripts/main.py packet eip155:1:0xYourToken --rpc "$EVM_RPC_URL" --out packet.json
+python scripts/main.py packet eip155:1:0xYourToken --out packet.json
 
 # capability scan of runtime bytecode, offline
 python scripts/main.py scan --hex 0x60806040...

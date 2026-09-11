@@ -167,3 +167,44 @@ def test_the_applets_embedded_example_matches_the_generator():
         "applet/dist/assets/example.js is stale — regenerate it from "
         "evm_dd.examples rather than editing it"
     )
+
+
+def test_the_skill_never_tells_the_agent_to_stop_on_a_missing_endpoint():
+    """The doc/code mismatch that blocked a live run.
+
+    0.1.3 taught the *code* to use the host's endpoint but left the skill
+    body showing `--rpc "$EVM_RPC_URL"`. The agent read that, found the
+    variable unset, and refused before the component ever ran — so the fix
+    shipped and changed nothing a user could see.
+
+    The prose an agent reads is as load-bearing as the Python it calls.
+    """
+    body = INSTRUCTIONS.read_text(encoding="utf-8")
+
+    # No command may present an endpoint as something to fill in.
+    assert '--rpc "$EVM_RPC_URL"' not in body
+    assert "--rpc <url>" not in body
+
+    # And the agent is told, explicitly, not to stop for one.
+    lowered = body.lower()
+    assert "do not ask the user for an rpc endpoint" in lowered
+    assert "never a reason to stop" in lowered
+
+
+def test_every_command_shown_in_the_skill_is_a_real_subcommand():
+    """A command in the instructions that the CLI does not have is a dead end
+    an agent will faithfully try to run."""
+    import re
+
+    from evm_dd.cli import build_parser
+
+    known = set()
+    for action in build_parser()._actions:
+        if hasattr(action, "choices") and isinstance(action.choices, dict):
+            known |= set(action.choices)
+
+    body = INSTRUCTIONS.read_text(encoding="utf-8")
+    shown = set(re.findall(r"main\.py ([a-z-]+)", body))
+    # `example` and `state` are component views rather than CLI subcommands.
+    unknown = shown - known - {"example", "state"}
+    assert not unknown, f"instructions reference commands the CLI lacks: {unknown}"
