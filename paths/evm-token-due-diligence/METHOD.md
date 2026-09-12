@@ -46,7 +46,10 @@ The references carry judgement — what to check on a v4 hook, how to define
 a launch cohort, when to escalate to bytecode. Those cannot be typed into
 existence, and pretending otherwise would be its own kind of dishonesty.
 
-## Parallel lanes
+## Parallel lanes (optional, and rarely used)
+
+**The pack is single-agent and sequential by default.** Nothing below is a
+requirement, and a host without subagents runs it exactly as well.
 
 `TargetPacket.freeze()` returns a canonical payload and its digest. Hand
 every lane the same frozen packet and require the digest back with their

@@ -107,6 +107,19 @@ class ProxyResolution:
     notes: list[str] = field(default_factory=list)
 
     @property
+    def is_upgradeable(self) -> bool:
+        """Whether the delegate target can be changed after deployment.
+
+        A slot-based proxy (EIP-1967, EIP-1822, beacon, zeppelinos) can be
+        re-pointed by whoever holds the authority. An EIP-1167 minimal proxy
+        cannot: the implementation address is literal bytes in its runtime,
+        so changing it means deploying a different proxy. Treating the two
+        the same reports every minimal proxy as replaceable code, which is
+        the opposite of true.
+        """
+        return self.is_proxy and self.pattern != "eip1167_minimal"
+
+    @property
     def executing_address(self) -> str:
         """The address whose runtime should be scanned for capability."""
         return self.implementation or self.address
@@ -117,6 +130,7 @@ class ProxyResolution:
             "runtime_hash": self.runtime_hash,
             "runtime_size": self.runtime_size,
             "is_proxy": self.is_proxy,
+            "is_upgradeable": self.is_upgradeable,
             "pattern": self.pattern,
             "implementation": self.implementation,
             "beacon": self.beacon,

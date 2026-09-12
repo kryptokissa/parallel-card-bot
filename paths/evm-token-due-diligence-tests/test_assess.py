@@ -301,3 +301,55 @@ def test_burning_a_named_account_without_allowance_is_still_adverse():
     controls = _rating(payload, "token_controls")
     assert controls["status"] == Status.ADVERSE.value
     assert controls["severity"] == "critical"
+
+
+def test_a_minimal_proxy_is_not_reported_as_upgradeable():
+    """The second false critical a real run produced.
+
+    An EIP-1167 minimal proxy holds its implementation address as literal
+    bytes in its own runtime. It cannot be re-pointed — changing the target
+    means deploying a different proxy. `proxy.py` said so in
+    `upgrade_authority_basis` from the start; the assessor ignored it and
+    rated every proxy critical-replaceable, turning an immutable delegate
+    into a NO-GO.
+    """
+    from evm_dd.proxy import resolve_proxy
+
+    minimal = (
+        "0x363d3d373d3d3d363d73"
+        + "be" * 20
+        + "5af43d82803e903d91602b57fd5bf3"
+    )
+    resolution = resolve_proxy("0x" + "11" * 20, minimal, lambda _a, _s: None)
+    assert resolution.is_proxy
+    assert not resolution.is_upgradeable
+    assert resolution.to_dict()["is_upgradeable"] is False
+
+
+def test_a_slot_based_proxy_is_still_upgradeable():
+    """The distinction must not swallow the genuinely replaceable case."""
+    from evm_dd.proxy import SLOT_EIP1967_IMPLEMENTATION, resolve_proxy
+
+    def read_slot(_address, slot):
+        return ("0x" + "00" * 12 + "aa" * 20) if slot == SLOT_EIP1967_IMPLEMENTATION else "0x" + "00" * 32
+
+    resolution = resolve_proxy("0x" + "11" * 20, "0x6080604052f4", read_slot)
+    assert resolution.is_proxy and resolution.is_upgradeable
+
+
+def test_a_minimal_proxy_token_does_not_rate_adverse_for_upgradeability():
+    """End to end: the fixed delegate is reported, never as a blocker."""
+    from evm_dd.keccak import selector
+
+    minimal = (
+        "0x363d3d373d3d3d363d73"
+        + IMPLEMENTATION[2:]
+        + "5af43d82803e903d91602b57fd5bf3"
+    )
+    plain = "0x" + "63" + selector("transfer(address,uint256)")[2:] + "00"
+    _, payload, manifest = _run(proxy=False, target_runtime=minimal, impl_runtime=plain)
+    controls = _rating(payload, "token_controls")
+    assert controls["status"] == Status.CLEAR.value
+    assert payload["verdict"]["call"] != "NO-GO"
+    assert "fixed in runtime" in controls["summary"]
+    assert validate_report(manifest, payload).ok
