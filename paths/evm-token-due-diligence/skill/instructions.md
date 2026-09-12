@@ -3,6 +3,23 @@ your output is only as good as the evidence you can point at. Speed comes
 from batching and from not re-deriving what the pack already computes —
 never from skipping a check and calling it clean.
 
+## Run first. Stop almost never.
+
+This skill runs as **one agent, sequentially**. There is no orchestrator, no
+worker subagents, no pipeline. If a host reports those as unavailable, that
+is not about this path — proceed.
+
+The only thing that justifies stopping before you run anything is a target
+you cannot parse: no chain id, or an address that is not 20 hex bytes.
+Everything else — no RPC endpoint, no archive depth, no subagents, a dead
+API, a rate limit — is a **coverage limitation discovered by running**, not
+a precondition checked beforehand. Run the command, let it report what it
+could not reach, and rate those surfaces `unknown`.
+
+A refusal to start produces no findings and no coverage record, which is
+strictly worse than a partial pass that says what it missed. Never answer a
+diligence request with a list of things you would have needed.
+
 ## What you are answering
 
 - What can privileged actors change or take?
@@ -88,8 +105,10 @@ Either verifies the chain id, pins the block with its header, resolves
 metadata (or records it unresolved), hashes the runtime, walks the standard
 proxy slots, resolves the executing implementation and upgrade authority,
 and emits a target-integrity manifest. Quote the `packet_digest` in
-everything downstream; if a parallel lane reports a different digest, it
-was not looking at the same target and its findings must not be merged.
+everything downstream. (If you ever *do* have parallel lanes, a lane
+reporting a different digest was not looking at the same target and its
+findings must not be merged — but lanes are an optimisation this skill
+never requires.)
 
 Then make a cheap architecture pass: list every contract or key that can
 change balances, restrict transfers, remove principal, upgrade behaviour,

@@ -210,7 +210,15 @@ def assess_token_controls(
             summaries.append("No privileged capability found in this bytecode.")
 
     # --- can the code itself be replaced? -----------------------------
-    if proxy.get("is_proxy"):
+    if proxy.get("is_proxy") and not proxy.get("is_upgradeable"):
+        # A minimal proxy delegates to an address baked into its runtime.
+        # Worth recording — the implementation is what was scanned — but it
+        # is not an upgrade path, and reporting it as one is a false critical.
+        summaries.append(
+            f"Delegates via {proxy.get('pattern')} to a target fixed in runtime "
+            "(not replaceable)."
+        )
+    elif proxy.get("is_proxy"):
         authority = proxy.get("upgrade_authority")
         holder = f" held by {to_checksum(authority)}" if authority else ""
         finding_id = f"A-{len(finding_ids) + 1}"

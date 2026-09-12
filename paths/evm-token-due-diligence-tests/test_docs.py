@@ -208,3 +208,45 @@ def test_every_command_shown_in_the_skill_is_a_real_subcommand():
     # `example` and `state` are component views rather than CLI subcommands.
     unknown = shown - known - {"example", "state"}
     assert not unknown, f"instructions reference commands the CLI lacks: {unknown}"
+
+
+def test_the_skill_never_makes_infrastructure_a_precondition():
+    """Three live runs were lost to prose read as a prerequisite.
+
+    First a missing `EVM_RPC_URL`, then again after the code stopped needing
+    one, then "orchestrator and worker subagents were unavailable" — a path
+    that declares no pipeline and no agents at all. Each time the agent
+    checked a condition before running and answered with a list of what it
+    would have needed, producing no findings and no coverage record.
+
+    The instructions now carry a standing rule instead of a patch per case.
+    """
+    # Normalise whitespace: these are prose assertions and the source is
+    # hard-wrapped, so a phrase may straddle a line break.
+    raw = INSTRUCTIONS.read_text(encoding="utf-8").lower()
+    body = " ".join(raw.split())
+
+    # Single-agent, sequential, and said so before anything else.
+    assert "one agent, sequentially" in body
+    assert "no orchestrator" in body and "worker subagents" in body
+
+    # Infrastructure gaps are discovered by running, not checked beforehand.
+    assert "coverage limitation discovered by running" in body
+    assert "not a precondition" in body
+
+    # And the failure mode is named outright.
+    assert "never answer a diligence request with a list of things you would have needed" in body
+
+    # The rule has to come early enough to be read.
+    assert body.index("run first. stop almost never.") < len(body) // 4, (
+        "the standing rule must sit near the top, not buried"
+    )
+
+
+def test_the_manifest_declares_no_pipeline_or_agents():
+    """The skill claims to be single-agent; the manifest must agree."""
+    yaml = pytest.importorskip("yaml", reason="manifest parsing needs a YAML reader")
+    manifest = yaml.safe_load((PACK_ROOT / "wfpath.yaml").read_text(encoding="utf-8"))
+    assert "pipeline" not in manifest
+    assert "agents" not in manifest
+    assert len(manifest["components"]) == 1
