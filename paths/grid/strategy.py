@@ -162,7 +162,12 @@ def _load_price_series(raw: str | None) -> list[Any] | None:
 
 
 def _interview_from_answers(answers: dict[str, Any]) -> Interview:
-    """Build an interview from `{key: value}` or `{key: {value, source, ...}}`."""
+    """Build an interview from `{key: value}` or `{key: {value, source, ...}}`.
+
+    Raises ValueError on an unrecognised key so callers report it as a normal
+    failure rather than a traceback: the agent reads stdout as JSON, and a
+    traceback is unparseable.
+    """
     interview = Interview()
     for key, entry in answers.items():
         if isinstance(entry, dict) and "value" in entry:
@@ -175,6 +180,13 @@ def _interview_from_answers(answers: dict[str, Any]) -> Interview:
         else:
             interview.record(key, entry, "user")
     return interview
+
+
+def _interview_or_error(answers: dict[str, Any]) -> Interview:
+    try:
+        return _interview_from_answers(answers)
+    except KeyError as exc:
+        raise ValueError(str(exc).strip('"')) from exc
 
 
 def _tool_calls(grid_plan: plan_mod.GridPlan, market: str) -> list[dict[str, Any]]:
@@ -259,7 +271,10 @@ def cmd_start(args: argparse.Namespace) -> int:
     if not answers:
         return _fail("no answers supplied — run `questions` and ask the user first")
 
-    interview = _interview_from_answers(answers)
+    try:
+        interview = _interview_or_error(answers)
+    except ValueError as exc:
+        return _fail(str(exc))
     interview.confirmed = bool(args.confirm)
 
     decision = ready_to_start(interview, args.mark)
@@ -510,8 +525,10 @@ def cmd_gates(args: argparse.Namespace) -> int:
         answers = _load_json_arg(args.answers)
     except (ValueError, OSError) as exc:
         return _fail(f"could not read --answers: {exc}")
-    interview = _interview_from_answers(answers)
-    config = interview.to_config()
+    try:
+        config = _interview_or_error(answers).to_config()
+    except ValueError as exc:
+        return _fail(str(exc))
     resolved = resolve(config)
     try:
         resolved.config.validate()
@@ -542,8 +559,8 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     if prices is None:
         return _fail("--prices is required")
 
-    config = resolve(_interview_from_answers(answers).to_config()).config
     try:
+        config = resolve(_interview_or_error(answers).to_config()).config
         config.validate()
         outcome = simulate(config, prices, hours_per_bar=args.hours_per_bar)
     except (ValueError, GridGeometryError) as exc:
@@ -581,8 +598,8 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     if prices is None:
         return _fail("--prices is required")
 
-    config = resolve(_interview_from_answers(answers).to_config()).config
     try:
+        config = resolve(_interview_or_error(answers).to_config()).config
         config.validate()
         rows = sweep(
             config,

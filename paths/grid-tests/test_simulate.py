@@ -297,3 +297,67 @@ def test_a_grid_that_never_cycles_reports_a_negative_edge(btc_config):
     assert outcome.inventory_units > 0
     assert outcome.fees_paid_usd > 0
     assert outcome.cycle_edge_usd < 0
+
+
+def test_tuning_engages_even_when_the_series_opens_far_from_todays_mark(btc_bars):
+    """A historical series opens wherever it opened, not near the current mark.
+
+    Tuning simulates the *shape* — level count and spacing — by scaling the same
+    relative span around the series' own opening price. Without that, every
+    simulated candidate fails `mark_in_range` and the proposal silently falls
+    back to the untuned path while claiming a series was never supplied.
+    """
+    from engine.interview import propose
+
+    opening = btc_bars[0]["c"]
+    far_mark = opening * 1.35
+    proposal = propose(
+        market="BTC-USDC",
+        sz_decimals=5,
+        mark_price=far_mark,
+        capital_usd=5000.0,
+        volatility_pct=6.0,
+        prices=btc_bars,
+    )
+    _levels, rationale = proposal["levels"]
+    assert "simulated over" in rationale
+    assert "did not tune" not in rationale
+    # The range still sits around the mark the user asked about, not the series.
+    assert proposal["lower"][0] < far_mark < proposal["upper"][0]
+
+
+def test_a_series_that_cannot_tune_says_so_rather_than_going_quiet(btc_config):
+    # Capital that only supports a couple of rungs leaves the sweep nothing to
+    # rank. The rationale has to admit that, not imply no series was given.
+    from engine.interview import propose
+
+    with pytest.raises(ValueError):
+        # Too small for any grid at all — refused outright, which is the other
+        # honest outcome.
+        propose(
+            market="BTC-USDC",
+            sz_decimals=5,
+            mark_price=100000.0,
+            capital_usd=15.0,
+            prices=[100000.0, 99000.0, 101000.0],
+        )
+
+
+def test_tuning_never_loosens_the_gates(btc_bars):
+    from engine.interview import Interview, propose, ready_to_start
+
+    opening = btc_bars[0]["c"]
+    far_mark = opening * 1.35
+    proposal = propose(
+        market="BTC-USDC",
+        sz_decimals=5,
+        mark_price=far_mark,
+        capital_usd=5000.0,
+        volatility_pct=6.0,
+        prices=btc_bars,
+    )
+    interview = Interview()
+    interview.record("sz_decimals", 5)
+    interview.record_many(proposal, source="delegated")
+    interview.confirmed = True
+    assert ready_to_start(interview, far_mark).ok

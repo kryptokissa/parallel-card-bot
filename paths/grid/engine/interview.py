@@ -34,6 +34,7 @@ from engine.config import (
 )
 from engine.gates import GateReport, evaluate
 from engine.levels import MIN_ORDER_USD_NOTIONAL
+from engine.simulate import as_bars
 from engine.simulate import best as best_row
 from engine.simulate import sweep
 from engine.ticks import snap_price
@@ -144,7 +145,10 @@ class Interview:
         self, key: str, value: Any, source: Source = "user", rationale: str = ""
     ) -> None:
         if key not in QUESTIONS_BY_KEY and key not in _EXTRA_KEYS:
-            raise KeyError(f"{key!r} is not part of the interview")
+            accepted = ", ".join(sorted(set(QUESTIONS_BY_KEY) | _EXTRA_KEYS))
+            raise KeyError(
+                f"{key!r} is not part of the interview. Accepted keys: {accepted}"
+            )
         self.answers[key] = Answer(key, value, source, rationale)
 
     def record_many(self, values: dict[str, Any], source: Source = "user") -> None:
@@ -184,6 +188,11 @@ _EXTRA_KEYS = {
     "sz_decimals",
     "max_recenters",
     "fee_bps_per_side",
+    # Observed market conditions the agent reads from the venue rather than
+    # asking the user about: `MarketHandler.funding(symbol)` gives the live rate,
+    # and passing it in is the whole reason the cost gate takes a rate at all.
+    "funding_rate_per_hour",
+    "expected_hold_hours",
     "maintenance_margin_fraction",
     "min_liquidation_buffer",
     "min_fee_coverage",
@@ -313,16 +322,42 @@ def propose(
         ceiling = min(max_by_fees, max_by_notional, 20)
 
         tuned: tuple[int, str, str] | None = None
+        tuning_failed = ""
         if prices is not None and ceiling >= 2:
-            probe_grid = replace(
-                probe,
-                levels=min(ceiling, 20),
-                leverage=max_leverage,
+            # Tune the *shape* — level count and spacing — not the absolute
+            # prices. A historical series opens wherever it opened, which is
+            # rarely near today's mark, so simulating a range centred on today
+            # would fail `mark_in_range` on every candidate and silently learn
+            # nothing. Scale the same relative span around the series' own
+            # opening price instead.
+            opening = as_bars(prices)[0].close
+            sim_lower = snap_price(
+                opening * (1 - half_span_pct / 100.0), sz_decimals
             )
-            rows = sweep(
-                probe_grid, prices, level_counts=range(2, min(ceiling, 20) + 1)
+            sim_upper = snap_price(
+                opening * (1 + half_span_pct / 100.0), sz_decimals
             )
-            winner = best_row(rows)
+            if sim_lower <= 0 or sim_upper <= sim_lower:
+                tuning_failed = (
+                    "the price series could not be scaled to a usable range"
+                )
+                rows = []
+            else:
+                probe_grid = replace(
+                    probe,
+                    lower=sim_lower,
+                    upper=sim_upper,
+                    levels=min(ceiling, 20),
+                    leverage=max_leverage,
+                )
+                rows = sweep(
+                    probe_grid, prices, level_counts=range(2, min(ceiling, 20) + 1)
+                )
+            winner = best_row(rows) if rows else None
+            if winner is None and not tuning_failed:
+                tuning_failed = (
+                    "no simulated configuration cleared the gates over this series"
+                )
             if winner is not None and winner.result is not None:
                 caveat = ""
                 if winner.result.cycles < 3:
@@ -396,8 +431,15 @@ def propose(
                             f"{candidate.fee_cost_bps:.1f} bps fees plus "
                             f"{candidate.funding_cost_bps:.1f} bps funding — and "
                             f"HL's ${MIN_ORDER_USD_NOTIONAL:.0f} minimum per "
-                            "order. Nothing simulated whether a different count "
-                            "would do better; pass a price series to tune it."
+                            "order. "
+                            + (
+                                f"A price series was supplied but did not tune "
+                                f"this: {tuning_failed}."
+                                if tuning_failed
+                                else "Nothing simulated whether a different "
+                                "count would do better; pass a price series to "
+                                "tune it."
+                            )
                         ),
                     ),
                     "spacing": (
