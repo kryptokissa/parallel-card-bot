@@ -29,6 +29,10 @@ or scratch files inside `<slug>/`.
 
 ## Before every publish
 
+**Follow `paths/PUBLISHING.md`.** It is the runbook: the full pre-publish
+gate, every `publish` flag, how to read the response, how to tell a
+stalled review from a slow one, and a failure playbook. The short form:
+
 ```bash
 wayfinder path fmt && wayfinder path doctor && wayfinder path build
 python paths/tools/check_bundle_origins.py paths/<slug>/dist/bundle.zip
@@ -37,6 +41,9 @@ python paths/tools/check_bundle_origins.py paths/<slug>/dist/bundle.zip
 The origin check must run against the **built bundle**, not the source
 tree. A publish with a non-`wayfinder.ai` origin in it — placeholders and
 loopback addresses included — gets rejected.
+
+A bonded path must publish with `--owner-wallet`, or the new version will
+not attach to it.
 
 ## Toolchain
 
