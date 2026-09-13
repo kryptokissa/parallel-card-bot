@@ -88,3 +88,58 @@ def test_a_snapped_price_is_a_fixed_point():
         once = snap_price(price, 4)
         if once > 0:
             assert snap_price(once, 4) == once
+
+
+signing = pytest.importorskip(
+    "hyperliquid.utils.signing",
+    reason="hyperliquid-felix arrives with wayfinder-paths, a dev dependency",
+)
+
+
+@pytest.mark.parametrize("sz_decimals", PERP_SZ_DECIMALS)
+def test_every_price_and_size_survives_the_wire_encoder(sz_decimals):
+    """`float_to_wire` raises rather than rounding, so a float artefact is fatal.
+
+    Hyperliquid's signing path formats every number to 8 decimals and raises
+    `ValueError("float_to_wire causes rounding")` if the value does not survive
+    that within 1e-12. Snapping is done in `Decimal` precisely so the floats that
+    come back out are representable, and this is the test that says so — across
+    price magnitudes from cents to six figures, both spacings, and level counts
+    up to the cap.
+    """
+    from engine.config import GridConfig
+    from engine.levels import GridGeometryError, build_levels
+
+    rng = random.Random(3)
+    checked = 0
+    for _ in range(250):
+        mark = rng.choice(
+            [
+                rng.uniform(0.01, 1.0),
+                rng.uniform(1.0, 100.0),
+                rng.uniform(100.0, 5_000.0),
+                rng.uniform(5_000.0, 150_000.0),
+            ]
+        )
+        span = rng.uniform(0.02, 0.4)
+        config = GridConfig(
+            market="X-USDC",
+            sz_decimals=sz_decimals,
+            lower=mark * (1 - span),
+            upper=mark * (1 + span),
+            levels=rng.randint(2, 20),
+            spacing=rng.choice(["geometric", "arithmetic"]),
+            capital_usd=rng.choice([500.0, 5_000.0, 250_000.0]),
+            leverage=rng.choice([1.0, 2.0, 5.0]),
+            breakout="halt_hold",
+        )
+        try:
+            config.validate()
+            rungs = build_levels(config, mark)
+        except (ValueError, GridGeometryError):
+            continue
+        for rung in rungs:
+            signing.float_to_wire(rung.price)
+            signing.float_to_wire(rung.size)
+            checked += 2
+    assert checked > 0, "the fuzz produced no valid grids to check"
