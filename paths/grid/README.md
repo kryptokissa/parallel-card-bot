@@ -92,6 +92,63 @@ state                       what it thinks, and which save file it read
 The path decides; the agent executes. Commands return the `hyperliquid_*` calls
 to make, and the path itself never signs or sends anything.
 
+## The first live grid
+
+This path has never taken a real fill, so the execution leg is untested however
+green the suite is. The first run exists to prove orders place, fill and
+reconcile — not to make money. Make it small enough that being wrong is boring.
+
+**Before starting**
+
+- USDC in the Hyperliquid clearinghouse for the wallet you will use.
+  `hyperliquid_deposit_usdc` bridges it from Arbitrum; the minimum is $5 and the
+  bridge takes a few minutes.
+- The current mark, the market's `szDecimals`, and its funding rate. All three
+  come from the venue: `metaAndAssetCtxs` carries mark, `szDecimals` and funding
+  in one response.
+- `hyperliquid_update_leverage` set for the market, before any order.
+
+**A deliberately boring first grid**
+
+$100–200, 2–4 rungs, leverage 1–2x, `breakout: halt_close`, and a daily loss
+limit of roughly 10% of the capital. Four rungs on $150 puts about $37 an
+order, comfortably over the $10 minimum, and `halt_close` means a breakout ends
+with no position rather than a held bag you then have to decide about.
+
+Pick a range price is currently *inside* and has crossed repeatedly in the last
+day or two. A range price has already left fails `mark_in_range`, and one price
+never revisits completes no cycles and teaches nothing.
+
+**Running it**
+
+```
+gates      confirm all five pass at the live mark before anything else
+start      place the rungs; check every order appears on the exchange
+step       after any fill, with the venue's open orders, position and equity
+state      read the event log; confirm it matches what the exchange shows
+```
+
+**What to actually verify, in order**
+
+1. Every order from `start` exists on the exchange at the exact price and size
+   the path returned. A rejection here means a venue contract was missed, and
+   the error text names which.
+2. After the first fill, `step` replaces that rung and nothing else. Run it
+   twice: the second run must place nothing.
+3. `reduce_only` behaves. While flat, no rung carries it. Once long, the sell
+   rungs do and the buy rungs do not.
+4. One completed cycle — a buy rung fills, price rises, its sell fills — and the
+   realised amount matches the rung gap minus fees.
+5. One breakout, or force it by setting a range price is about to leave. Rungs
+   cancel, and the position is handled the way `breakout` says.
+
+Stop and read carefully if the exchange and `state` ever disagree. The exchange
+is right about positions and orders; the log is right about intent. A
+disagreement is either a missed fill or a bug, and both are worth understanding
+before adding money.
+
+Only after one full cycle and one breakout is a larger grid worth considering.
+
 ## Risk
 
 A grid is short volatility. It makes small amounts often and loses a large
