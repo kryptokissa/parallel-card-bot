@@ -1,0 +1,41 @@
+schema_version: '0.1'
+slug: grid
+name: Grid
+version: 0.1.0
+summary: A grid trading bot for Hyperliquid perps. Interviews you for market, range,
+  spacing, leverage and breakout behaviour before a single order exists, then works
+  only from that frozen config.
+primary_kind: strategy
+tags:
+- strategy
+- grid
+- perps
+- hyperliquid
+- market-making
+components:
+- id: main
+  kind: strategy
+  path: strategy.py
+applet:
+  build_dir: applet/dist
+  manifest: applet/applet.manifest.json
+skill:
+  enabled: true
+  source: generated
+  name: grid
+  description: A grid trading bot for Hyperliquid perps. Interviews you for market,
+    range, spacing, leverage and breakout behaviour before a single order exists,
+    then works only from that frozen config.
+  instructions: skill/instructions.md
+  runtime:
+    mode: thin
+    package: wayfinder-paths
+    version: 0.11.0
+    python: '>=3.12,<3.13'
+    component: main
+    bootstrap: uv
+    fallback_bootstrap: pipx
+    prefer_existing_runtime: true
+    require_api_key: false
+    api_key_env: WAYFINDER_API_KEY
+    config_path_env: WAYFINDER_CONFIG_PATH
