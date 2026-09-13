@@ -12,52 +12,104 @@
         color-scheme: dark;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       }
-      body {
-        margin: 0;
-        padding: 16px;
-        background: #0b0f0c;
-        color: #e7f5ea;
-      }
+      body { margin: 0; padding: 16px; background: #0b0f0c; color: #e7f5ea; }
       .card {
         border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 16px;
-        padding: 16px;
+        border-radius: 16px; padding: 16px;
         background: rgba(255, 255, 255, 0.04);
       }
-      pre {
-        overflow: auto;
-        background: rgba(255, 255, 255, 0.04);
-        padding: 12px;
-        border-radius: 12px;
+      .label { font-size: 13px; opacity: 0.7; }
+      .market { font-size: 22px; margin-top: 4px; }
+      .status { font-size: 13px; opacity: 0.8; margin-top: 2px; }
+      .facts {
+        margin-top: 14px; display: grid; gap: 10px 18px;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
       }
-      button {
-        background: rgba(255, 255, 255, 0.06);
-        color: #e7f5ea;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 12px;
-        padding: 10px 12px;
-        cursor: pointer;
+      .fact .k { font-size: 12px; opacity: 0.6; }
+      .fact .v { font-size: 15px; margin-top: 2px; }
+      h2 { font-size: 13px; font-weight: 600; opacity: 0.75; margin: 18px 0 8px; }
+      .rung {
+        display: grid; grid-template-columns: 46px 1fr auto auto;
+        gap: 10px; align-items: baseline;
+        padding: 5px 8px; border-radius: 8px; font-variant-numeric: tabular-nums;
       }
-      button:hover {
-        background: rgba(255, 255, 255, 0.10);
+      .rung + .rung { margin-top: 2px; }
+      .rung.buy { background: rgba(80, 200, 140, 0.10); }
+      .rung.sell { background: rgba(230, 130, 120, 0.10); }
+      .side { font-size: 11px; text-transform: uppercase; opacity: 0.7; }
+      .price { font-size: 14px; }
+      .size, .notional { font-size: 12px; opacity: 0.7; }
+      .gate {
+        display: grid; grid-template-columns: 44px 150px 1fr;
+        gap: 10px; padding: 4px 0; font-size: 12px; align-items: baseline;
       }
+      .mark { font-size: 11px; text-transform: uppercase; }
+      .gate.pass .mark { color: #6ad3a0; }
+      .gate.fail .mark { color: #f09a90; }
+      .gname { opacity: 0.85; }
+      .detail { opacity: 0.65; }
+      .warn {
+        margin-top: 14px; padding: 10px 12px; border-radius: 10px;
+        background: rgba(240, 154, 144, 0.12);
+        border: 1px solid rgba(240, 154, 144, 0.3); font-size: 13px;
+      }
+      .note { font-size: 12px; opacity: 0.6; margin-top: 8px; }
+      ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; opacity: 0.8; }
+      .empty { font-size: 13px; opacity: 0.55; }
+      .foot { margin-top: 16px; font-size: 11px; opacity: 0.45; }
     </style>
   </head>
   <body data-path-ready="true">
     <div class="card">
-      <div style="font-size: 14px; opacity: 0.8">Applet</div>
-      <div style="font-size: 20px; margin-top: 6px">Grid</div>
-      <div style="opacity: 0.75; margin-top: 10px">A grid trading bot for Hyperliquid perps. Interviews you for market, range, spacing, leverage and breakout behaviour before a single order exists, then works only from that frozen config.</div>
+      <div class="label">Grid</div>
+      <div class="market" data-market>no market yet</div>
+      <div class="status" data-status>awaiting interview</div>
 
-      <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap">
-        <button type="button" data-action="bump">Bump state</button>
-        <button type="button" data-action="emit">Emit state</button>
+      <div class="warn" data-breakout-warning hidden>
+        Breakout behaviour has not been chosen, so this grid cannot start. There
+        is no neutral default: leaving it unanswered would mean holding a
+        directional position indefinitely, unhedged.
       </div>
 
-      <div style="margin-top: 14px; font-size: 13px; opacity: 0.8">
-        Current state (shareable via presets):
+      <div data-config-section hidden>
+        <div class="facts">
+          <div class="fact"><div class="k">Range</div><div class="v" data-range>—</div></div>
+          <div class="fact"><div class="k">Rungs</div><div class="v" data-levels>—</div></div>
+          <div class="fact"><div class="k">Spacing</div><div class="v" data-spacing>—</div></div>
+          <div class="fact"><div class="k">Leverage</div><div class="v" data-leverage>—</div></div>
+          <div class="fact"><div class="k">Capital</div><div class="v" data-capital>—</div></div>
+          <div class="fact"><div class="k">On breakout</div><div class="v" data-breakout>—</div></div>
+        </div>
       </div>
-      <pre data-path-state>{}</pre>
+
+      <div data-summary-section hidden>
+        <h2>Latest decision</h2>
+        <div style="font-size: 13px; opacity: 0.85" data-summary></div>
+      </div>
+
+      <div data-clamp-section hidden>
+        <h2>Clamped to a ceiling</h2>
+        <ul data-clamps></ul>
+      </div>
+
+      <div data-daily-section hidden>
+        <h2>Today</h2>
+        <div style="font-size: 13px; opacity: 0.85" data-daily></div>
+      </div>
+
+      <h2>Rungs</h2>
+      <div data-rungs></div>
+      <div class="empty" data-rungs-empty>No rungs placed yet.</div>
+
+      <div data-gates-section hidden>
+        <h2>Hard gates</h2>
+        <div data-gates></div>
+      </div>
+
+      <div class="foot">
+        Read-only view. This page renders what the path decided and cannot
+        change a gate, a limit, or an order.
+      </div>
     </div>
 
     <script src="./assets/app.js"></script>

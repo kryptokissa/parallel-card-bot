@@ -157,3 +157,98 @@ def test_usage_error_is_distinct_from_a_failed_check(tmp_path):
     # 2 for misuse, 1 for a bundle that must not ship — a caller can tell them
     # apart.
     assert result.returncode == 2
+
+
+from check_bundle_contents import CONTENT_PATTERNS, strip_comments
+
+
+def _content_reasons(text):
+    body = strip_comments(text)
+    return [why for pattern, why in CONTENT_PATTERNS if pattern.search(body)]
+
+
+def test_a_wildcard_target_origin_is_caught():
+    # Grid 0.1.0 was sent to human review for exactly this, straight out of the
+    # `path init` applet scaffold.
+    reasons = _content_reasons('window.parent?.postMessage(message, "*");')
+    assert any("wildcard target origin" in why for why in reasons)
+
+
+def test_a_captured_parent_origin_is_fine():
+    assert not _content_reasons(
+        "if (!parentOrigin) return;\nwindow.parent.postMessage(message, parentOrigin);"
+    )
+
+
+def test_a_comment_describing_the_bad_pattern_is_not_a_violation():
+    """The Marsh's approved applet documents the call it avoids.
+
+    A scan that fails a published, approved bundle is worse than no scan.
+    """
+    assert not _content_reasons(
+        '// every reply targets it explicitly — no postMessage("*") anywhere.\n'
+        "window.parent.postMessage(message, parentOrigin);"
+    )
+
+
+def test_a_block_comment_is_also_excluded():
+    assert not _content_reasons(
+        '/* never do postMessage(m, "*") */ parent.postMessage(m, origin);'
+    )
+
+
+def test_an_html_comment_is_excluded():
+    assert not _content_reasons('<!-- postMessage(m, "*") is banned -->')
+
+
+def test_a_url_on_the_same_line_cannot_hide_a_violation():
+    # Naive `//` stripping would swallow the rest of the line after the scheme.
+    reasons = _content_reasons(
+        'fetch("https://wayfinder.ai/x"); parent.postMessage(m, "*");'
+    )
+    assert any("wildcard target origin" in why for why in reasons)
+
+
+def test_strings_containing_comment_markers_survive():
+    assert strip_comments('var s = "a // b";').strip() == 'var s = "a // b";'
+    assert "/*" in strip_comments('var s = "/* not a comment */";')
+
+
+def test_escaped_quotes_do_not_end_a_string_early():
+    text = 'var s = "he said \\" // still a string"; parent.postMessage(m, "*");'
+    reasons = _content_reasons(text)
+    assert any("wildcard target origin" in why for why in reasons)
+
+
+def test_inline_event_handlers_are_caught():
+    reasons = _content_reasons('<button onclick="go()">x</button>')
+    assert any("inline event handler" in why for why in reasons)
+
+
+def test_eval_and_document_write_are_caught():
+    assert any("eval()" in why for why in _content_reasons("eval(payload);"))
+    assert any(
+        "document.write" in why for why in _content_reasons('document.write("x");')
+    )
+
+
+def test_only_shipped_text_types_are_scanned(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    bundle = tmp_path / "b.zip"
+    with zipfile.ZipFile(bundle, "w") as archive:
+        archive.writestr("wfpath.yaml", "slug: x")
+        # A Python file is not scanned for browser patterns.
+        archive.writestr("engine/notes.py", 'TEXT = \'postMessage(m, "*")\'')
+    script = (
+        Path(__file__).resolve().parent.parent / "tools" / "check_bundle_contents.py"
+    )
+    result = subprocess.run(
+        [sys.executable, str(script), str(bundle)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0

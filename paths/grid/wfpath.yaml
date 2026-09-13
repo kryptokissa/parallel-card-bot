@@ -1,7 +1,7 @@
 schema_version: '0.1'
 slug: grid
 name: Grid
-version: 0.1.0
+version: 0.1.1
 summary: A grid trading bot for Hyperliquid perps. Interviews you for market, range,
   spacing, leverage and breakout behaviour before a single order exists, then works
   only from that frozen config.
