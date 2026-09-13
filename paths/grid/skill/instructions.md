@@ -16,7 +16,13 @@ The path emits `tool_calls`. You make them. It never signs or sends anything.
 Every `place` intent becomes `hyperliquid_place_limit_order` with the exact
 `price`, `size`, `reduce_only` and `cloid` the path returned. Every `cancel`
 intent becomes `hyperliquid_cancel_order` with that `cancel_cloid`. Do not
-round, resize, or reorder them. `wallet_label` comes back as a placeholder —
+round, resize, or reorder them.
+
+`cloid` values are opaque and must be passed through byte for byte. They look
+like `0x` and 32 hex characters because that is what Hyperliquid accepts, and
+they are derived from the rung so that reconciliation can recognise this grid's
+own resting orders later. Substituting a readable label breaks both: the venue
+rejects the order, and any order that did get placed becomes unrecognisable. `wallet_label` comes back as a placeholder —
 substitute the user's actual grid wallet, which you know and the path does not.
 
 Call `hyperliquid_update_leverage` once, before the first order, to set the

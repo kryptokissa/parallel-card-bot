@@ -106,11 +106,22 @@ def test_a_zero_mark_is_never_a_usable_mark(base_config):
         build_levels(base_config, -1.0)
 
 
-def test_cloid_tags_are_unique_and_stable(base_config):
-    first = [level.cloid_tag for level in build_levels(base_config, 100000.0)]
-    second = [level.cloid_tag for level in build_levels(base_config, 100000.0)]
+def test_cloids_are_unique_stable_and_venue_valid(base_config):
+    from engine.ids import is_valid_cloid
+
+    first = [level.cloid for level in build_levels(base_config, 100000.0)]
+    second = [level.cloid for level in build_levels(base_config, 100000.0)]
     assert first == second
     assert len(set(first)) == len(first)
+    # Hyperliquid rejects anything that is not 0x plus 32 hex characters, and
+    # nothing between the path and the venue checks.
+    assert all(is_valid_cloid(cloid) for cloid in first)
+
+
+def test_rung_tags_stay_human_readable_for_logs(base_config):
+    tags = [level.tag for level in build_levels(base_config, 100000.0)]
+    assert tags[0] == "rung-0-buy"
+    assert len(set(tags)) == len(tags)
 
 
 def test_spacing_is_measured_after_snapping(base_config):

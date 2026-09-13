@@ -53,18 +53,22 @@ def test_reduce_only_is_set_exactly_on_orders_that_reduce(base_config):
     assert not any(i.reduce_only for i in short_side.intents if i.side == "sell")
 
 
-def test_every_rung_gets_its_own_client_order_id(base_config):
+def test_every_rung_gets_its_own_venue_valid_client_order_id(base_config):
+    from engine.ids import is_valid_cloid
+
     result = plan_initial(base_config, 100000.0)
     cloids = [intent.cloid for intent in result.intents]
     assert len(set(cloids)) == len(cloids)
-    assert all(cloid and cloid.startswith("grid-") for cloid in cloids)
+    assert all(is_valid_cloid(cloid) for cloid in cloids)
 
 
 def test_refill_replaces_only_what_is_missing(base_config):
-    every = {f"grid-{i}-buy" for i in range(3)} | {f"grid-{i}-sell" for i in range(3, 6)}
+    from engine.levels import build_levels
+
+    every = {level.cloid for level in build_levels(base_config, 100000.0)}
     assert plan_refill(base_config, 100000.0, resting_cloids=every).is_empty
 
-    partial = set(list(every)[:2])
+    partial = set(sorted(every)[:2])
     result = plan_refill(base_config, 100000.0, resting_cloids=partial)
     assert len(result.intents) == 4
 
@@ -85,7 +89,7 @@ def test_in_range_covers_the_bounds(base_config):
 def test_halt_hold_keeps_the_position_and_says_so(base_config):
     config = base_config.with_updates(breakout="halt_hold")
     result = plan_breakout(
-        config, 108000.0, resting_cloids={"grid-0-buy"}, position_size=0.03
+        config, 108000.0, resting_cloids={"0x" + "a" * 32}, position_size=0.03
     )
     assert result.status == "halted"
     assert all(intent.action == "cancel" for intent in result.intents)
@@ -95,7 +99,7 @@ def test_halt_hold_keeps_the_position_and_says_so(base_config):
 def test_halt_close_flattens_with_reduce_only(base_config):
     config = base_config.with_updates(breakout="halt_close")
     result = plan_breakout(
-        config, 108000.0, resting_cloids={"grid-0-buy"}, position_size=0.03
+        config, 108000.0, resting_cloids={"0x" + "a" * 32}, position_size=0.03
     )
     flatten = [i for i in result.intents if i.action == "place"]
     assert len(flatten) == 1
@@ -141,16 +145,30 @@ def test_recentring_preserves_the_span(base_config):
 
 
 def test_all_breakout_modes_cancel_the_old_rungs(base_config):
+    from engine.ids import rung_cloid
+
+    resting = {
+        rung_cloid(base_config.market, 0, "buy"),
+        rung_cloid(base_config.market, 1, "buy"),
+    }
     for mode in ("halt_hold", "halt_close", "recenter"):
         config = base_config.with_updates(breakout=mode)
         result = plan_breakout(
-            config,
-            108000.0,
-            resting_cloids={"grid-0-buy", "grid-1-buy"},
-            position_size=0.0,
+            config, 108000.0, resting_cloids=set(resting), position_size=0.0
         )
         cancels = {i.cloid for i in result.intents if i.action == "cancel"}
-        assert cancels == {"grid-0-buy", "grid-1-buy"}
+        assert cancels == resting
+
+
+def test_the_flatten_order_also_carries_a_venue_valid_cloid(base_config):
+    from engine.ids import is_valid_cloid
+
+    config = base_config.with_updates(breakout="halt_close")
+    result = plan_breakout(
+        config, 108000.0, resting_cloids=set(), position_size=0.05
+    )
+    flatten = [i for i in result.intents if i.action == "place"][0]
+    assert is_valid_cloid(flatten.cloid)
 
 
 def test_plan_refuses_to_work_from_a_zero_mark(base_config):

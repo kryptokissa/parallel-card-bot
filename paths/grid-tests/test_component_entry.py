@@ -44,6 +44,13 @@ ANSWERS_NO_BREAKOUT = json.dumps(
 )
 
 
+def _rung_cloid(market: str, index: int, side: str) -> str:
+    """Derive a rung's client order id the same way the path does."""
+    from engine.ids import rung_cloid
+
+    return rung_cloid(market, index, side)
+
+
 def _run(path_dir, store_path, args: list[str]):
     env = dict(os.environ)
     env["PYTHONPATH"] = str(path_dir)
@@ -171,7 +178,7 @@ def test_step_refills_only_the_rungs_that_are_gone(path_dir, store_path):
             json.dumps(
                 [
                     {
-                        "cloid": "grid-0-buy",
+                        "cloid": _rung_cloid("BTC-USDC", 0, "buy"),
                         "side": "B",
                         "limitPx": 94000.0,
                         "sz": 0.01773,

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from engine.config import GridConfig
+from engine.ids import rung_cloid, rung_tag
 from engine.ticks import lot_size, snap_price, snap_size, tick_size
 
 Side = Literal["buy", "sell"]
@@ -45,15 +46,11 @@ class GridLevel:
     side: Side
     size: float
     notional_usd: float
-
-    @property
-    def cloid_tag(self) -> str:
-        """Stable per-level identity, used as the client order id.
-
-        Reconciliation matches resting orders to rungs by this, so it must not
-        encode anything that changes between runs.
-        """
-        return f"grid-{self.index}-{self.side}"
+    # Venue-valid client order id, derived from the market and the rung so it is
+    # identical on every run — reconciliation matches resting orders by it.
+    cloid: str = ""
+    # Human-readable name for logs and reasons. Never sent to the venue.
+    tag: str = ""
 
 
 def raw_level_prices(config: GridConfig) -> list[float]:
@@ -143,13 +140,16 @@ def build_levels(config: GridConfig, mark_price: float) -> list[GridLevel]:
                 f"${MIN_ORDER_USD_NOTIONAL:.2f}. ${config.capital_usd:,.2f} at "
                 f"{config.leverage}x supports at most {max_levels} levels."
             )
+        side: Side = "buy" if price < mark_price else "sell"
         levels.append(
             GridLevel(
                 index=index,
                 price=price,
-                side="buy" if price < mark_price else "sell",
+                side=side,
                 size=size,
                 notional_usd=notional,
+                cloid=rung_cloid(config.market, index, side),
+                tag=rung_tag(index, side),
             )
         )
     return levels

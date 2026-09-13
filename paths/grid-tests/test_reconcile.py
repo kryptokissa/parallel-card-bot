@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+from engine.ids import rung_cloid
 from engine.levels import build_levels
 from engine.reconcile import RestingOrder, reconcile
 
 
 def _rungs(config):
-    return {level.cloid_tag: level for level in build_levels(config, 100000.0)}
+    return {level.cloid: level for level in build_levels(config, 100000.0)}
 
 
 def test_a_fully_resting_grid_reconciles_clean(base_config):
     orders = [
-        {"cloid": tag, "side": "B", "limitPx": level.price, "sz": level.size, "oid": i}
-        for i, (tag, level) in enumerate(_rungs(base_config).items())
+        {
+            "cloid": cloid_key,
+            "side": "B",
+            "limitPx": level.price,
+            "sz": level.size,
+            "oid": index,
+        }
+        for index, (cloid_key, level) in enumerate(_rungs(base_config).items())
     ]
     result = reconcile(base_config, 100000.0, open_orders=orders)
     assert result.clean
@@ -22,11 +29,13 @@ def test_a_fully_resting_grid_reconciles_clean(base_config):
 
 def test_missing_rungs_are_reported(base_config):
     rungs = _rungs(base_config)
-    tag, level = next(iter(rungs.items()))
-    orders = [{"cloid": tag, "side": "B", "limitPx": level.price, "sz": level.size}]
+    cloid_key, level = next(iter(rungs.items()))
+    orders = [
+        {"cloid": cloid_key, "side": "B", "limitPx": level.price, "sz": level.size}
+    ]
     result = reconcile(base_config, 100000.0, open_orders=orders)
     assert len(result.missing) == base_config.levels - 1
-    assert tag not in result.missing
+    assert cloid_key not in result.missing
 
 
 def test_an_empty_book_reports_every_rung_missing(base_config):
@@ -37,18 +46,28 @@ def test_an_empty_book_reports_every_rung_missing(base_config):
 
 def test_a_rung_resting_at_the_wrong_price_is_flagged(base_config):
     rungs = _rungs(base_config)
-    tag, level = next(iter(rungs.items()))
-    orders = [{"cloid": tag, "side": "B", "limitPx": level.price + 500.0, "sz": level.size}]
+    cloid_key, level = next(iter(rungs.items()))
+    orders = [
+        {
+            "cloid": cloid_key,
+            "side": "B",
+            "limitPx": level.price + 500.0,
+            "sz": level.size,
+        }
+    ]
     result = reconcile(base_config, 100000.0, open_orders=orders)
     assert result.mispriced
     cloid, actual, expected = result.mispriced[0]
-    assert cloid == tag and expected == level.price and actual != expected
+    assert cloid == cloid_key and expected == level.price and actual != expected
 
 
 def test_orders_from_a_previous_range_are_marked_for_cancellation(base_config):
-    orders = [{"cloid": "grid-99-buy", "side": "B", "limitPx": 80000.0, "sz": 0.01}]
+    # A rung index this config no longer has, but one this grid could have used
+    # before a re-centre changed the level count.
+    stale = rung_cloid(base_config.market, 40, "buy")
+    orders = [{"cloid": stale, "side": "B", "limitPx": 80000.0, "sz": 0.01}]
     result = reconcile(base_config, 100000.0, open_orders=orders)
-    assert [o.cloid for o in result.unexpected] == ["grid-99-buy"]
+    assert [o.cloid for o in result.unexpected] == [stale]
 
 
 def test_orders_that_are_not_this_grids_are_left_alone(base_config):
@@ -56,7 +75,8 @@ def test_orders_that_are_not_this_grids_are_left_alone(base_config):
     # grid's business.
     orders = [
         {"cloid": None, "side": "A", "limitPx": 120000.0, "sz": 0.5, "oid": 7},
-        {"cloid": "other-strategy-1", "side": "B", "limitPx": 50000.0, "sz": 0.1},
+        # A valid cloid, but not one this grid could ever have derived.
+        {"cloid": "0x" + "f" * 32, "side": "B", "limitPx": 50000.0, "sz": 0.1},
     ]
     result = reconcile(base_config, 100000.0, open_orders=orders)
     assert len(result.untagged) == 2
@@ -77,7 +97,7 @@ def test_order_parsing_handles_the_shapes_the_venue_uses():
 
 def test_a_missing_price_is_zero_not_a_plausible_default():
     # A quietly defaulted price is how a real position ends up with no stop.
-    parsed = RestingOrder.from_exchange({"cloid": "grid-0-buy", "side": "B"})
+    parsed = RestingOrder.from_exchange({"cloid": "0x" + "b" * 32, "side": "B"})
     assert parsed.price == 0.0
 
 
@@ -88,6 +108,7 @@ def test_order_ids_survive_either_field_name():
 
 
 def test_summary_names_what_diverged(base_config):
-    orders = [{"cloid": "grid-99-buy", "side": "B", "limitPx": 80000.0, "sz": 0.01}]
+    stale = rung_cloid(base_config.market, 40, "buy")
+    orders = [{"cloid": stale, "side": "B", "limitPx": 80000.0, "sz": 0.01}]
     summary = reconcile(base_config, 100000.0, open_orders=orders).summary()
     assert "missing" in summary and "stale" in summary

@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from engine.config import GridConfig
+from engine.ids import flatten_cloid
 from engine.levels import GridLevel, build_levels
 
 Action = Literal["place", "cancel"]
@@ -110,9 +111,9 @@ def plan_initial(
             price=level.price,
             size=level.size,
             reduce_only=_reduces(level.side, position_size),
-            cloid=level.cloid_tag,
+            cloid=level.cloid,
             level_index=level.index,
-            reason=f"rung {level.index} at {level.price}",
+            reason=f"{level.tag} at {level.price}",
         )
         for level in levels
     ]
@@ -144,7 +145,7 @@ def plan_refill(
     levels = build_levels(config, mark_price)
     intents: list[OrderIntent] = []
     for level in levels:
-        if level.cloid_tag in resting_cloids:
+        if level.cloid in resting_cloids:
             continue
         intents.append(
             OrderIntent(
@@ -153,9 +154,9 @@ def plan_refill(
                 price=level.price,
                 size=level.size,
                 reduce_only=_reduces(level.side, position_size),
-                cloid=level.cloid_tag,
+                cloid=level.cloid,
                 level_index=level.index,
-                reason=f"rung {level.index} not resting — refill",
+                reason=f"{level.tag} not resting — refill",
             )
         )
     if not intents:
@@ -224,7 +225,7 @@ def plan_breakout(
                     # the venue accepts reduce_only and it protects against a
                     # racing fill flipping us.
                     reduce_only=True,
-                    cloid="grid-flatten",
+                    cloid=flatten_cloid(config.market),
                     reason="breakout — flatten the position",
                 )
             )
@@ -298,7 +299,7 @@ def plan_daily_stop(
                 price=mark_price,
                 size=abs(position_size),
                 reduce_only=True,
-                cloid="grid-flatten",
+                cloid=flatten_cloid(config.market),
                 reason="daily loss limit — flatten the position",
             )
         )

@@ -18,7 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from engine.config import GridConfig
+from engine.config import MAX_LEVELS, GridConfig
+from engine.ids import known_cloids
 from engine.levels import build_levels
 
 
@@ -99,17 +100,21 @@ def reconcile(
 ) -> Reconciliation:
     """Compare the rungs this config implies against the venue's open orders.
 
-    Orders carrying no `grid-` cloid are reported as `untagged` and never
-    cancelled: they may belong to the user or another path, and cancelling
-    someone else's order is not this grid's business.
+    Orders whose cloid this grid could not have produced are reported as
+    `untagged` and never cancelled: they may belong to the user or another path,
+    and cancelling someone else's order is not this grid's business. Ours are
+    recognised by re-deriving every cloid the grid could have used on this
+    market, so a rung left over from a previous range is still known to be ours
+    after a re-centre changed the level count.
     """
-    intended = {level.cloid_tag: level for level in build_levels(config, mark_price)}
+    intended = {level.cloid: level for level in build_levels(config, mark_price)}
+    ours = known_cloids(config.market, MAX_LEVELS)
 
     parsed = [RestingOrder.from_exchange(raw) for raw in open_orders]
     result = Reconciliation(position_size=position_size)
 
     for order in parsed:
-        if not order.cloid or not str(order.cloid).startswith("grid-"):
+        if not order.cloid or str(order.cloid) not in ours:
             result.untagged.append(order)
             continue
         cloid = str(order.cloid)
