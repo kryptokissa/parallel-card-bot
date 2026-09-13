@@ -250,3 +250,22 @@ def test_the_manifest_declares_no_pipeline_or_agents():
     assert "pipeline" not in manifest
     assert "agents" not in manifest
     assert len(manifest["components"]) == 1
+
+
+def test_the_readme_states_the_only_addresses_it_accepts_and_what_it_never_asks_for():
+    """The answer to a scanner finding belongs in the README, not in a reply.
+
+    Every published version trips the same static check: address handling
+    reads, from the outside, as an ambiguous wallet data flow. It is not —
+    the pack takes public contract and account addresses and nothing else —
+    but a reviewer who has to ask has already been slowed down. So the
+    README says it outright, and this test keeps it said.
+    """
+    raw = (PACK_ROOT / "README.md").read_text(encoding="utf-8").lower()
+    # Line wrapping is an editing detail; the sentences are the contract.
+    readme = re.sub(r"\s+", " ", raw)
+
+    assert "public evm contract and account addresses" in readme
+    for refused in ("private key", "seed phrase", "mnemonic", "keystore"):
+        assert refused in readme, refused
+    assert "never signs a transaction and never broadcasts one" in readme
