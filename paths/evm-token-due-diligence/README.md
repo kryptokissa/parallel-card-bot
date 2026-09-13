@@ -57,7 +57,7 @@ report, and the ledger refuses to record one as proven of the chain.
   ledger, coverage limitations.
 - `tests/evals/` — eval specs for `wayfinder path eval`.
 
-The Python suite — 184 checks, including the four synthetic rejection
+The Python suite — 208 checks, including the four synthetic rejection
 cases and the six behavioural examples — lives in
 `evm-token-due-diligence-tests`, one level up. Everything inside the path
 directory is packaged into the published bundle, and test code is neither
@@ -91,6 +91,25 @@ works on its first run.
 none, and redacts credentials out of everything it writes down. Historical replay
 needs archive depth; without it, the affected checks come back as coverage
 limitations rather than as results.
+
+### What it never asks you for
+
+The only addresses this pack accepts are **public EVM contract and account
+addresses** — the token you are looking at, the pools it trades in, the
+holders and authorities it reads. They are exactly the values anyone can
+read off a block explorer.
+
+It never asks for a private key, a seed phrase, a mnemonic, a keystore file
+or a wallet password, and there is nowhere for you to put one: no such
+parameter exists, no signing library is imported, and no key-material
+identifier appears anywhere in the source. It never signs a transaction and
+never broadcasts one. Every read goes out over a method allowlist in
+`evm_dd/rpc.py`, and the test suite asserts all of this rather than
+asking you to take it on faith.
+
+Static scanners flag address handling in this pack as an ambiguous wallet
+data flow. That is what address handling looks like from the outside; the
+paragraph above is what it is.
 
 ## Running
 
