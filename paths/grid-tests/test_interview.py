@@ -93,7 +93,7 @@ def test_delegation_does_not_relax_the_gates():
     interview.confirmed = True
     decision = ready_to_start(interview, 100000.0)
     assert not decision.ok
-    assert any("fee_coverage" in b for b in decision.blockers())
+    assert any("cost_coverage" in b for b in decision.blockers())
 
 
 def test_clamped_leverage_still_starts_but_reports_the_clamp():

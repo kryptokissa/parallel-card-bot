@@ -22,8 +22,8 @@ and why, and confirms once before a single order exists.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass, field, replace
+from typing import Any, Literal, Sequence
 
 from engine.config import (
     BREAKOUTS,
@@ -34,6 +34,8 @@ from engine.config import (
 )
 from engine.gates import GateReport, evaluate
 from engine.levels import MIN_ORDER_USD_NOTIONAL
+from engine.simulate import best as best_row
+from engine.simulate import sweep
 from engine.ticks import snap_price
 
 Source = Literal["user", "delegated", "default"]
@@ -255,13 +257,20 @@ def propose(
     capital_usd: float,
     volatility_pct: float | None = None,
     max_leverage: float = 1.0,
+    prices: Sequence[Any] | None = None,
 ) -> dict[str, tuple[Any, str]]:
     """A concrete grid the agent can put to the user, with reasoning per field.
 
     Searches rather than guesses: it proposes a range from observed volatility,
-    then takes the largest level count that still clears fee coverage and the
+    then takes the largest level count that still clears cost coverage and the
     minimum notional, and widens or narrows until every hard gate passes. Every
     returned value carries the sentence the agent should say about it.
+
+    Pass `prices` — a recent series for this market — and the level count and
+    spacing are chosen by simulating candidates over it instead, which is what
+    §4.3 asks for. Without it the proposal is merely legal: it clears every gate,
+    but nothing has checked whether a different rung count would have done
+    better.
 
     Raises ValueError when no grid at this capital clears the gates — better a
     clear refusal than a proposal that fails at start.
@@ -294,7 +303,7 @@ def propose(
             leverage=max_leverage,
             breakout="halt_close",
         )
-        required_bps = 2.0 * probe.fee_bps_per_side * probe.min_fee_coverage
+        required_bps = probe.required_spacing_bps
         max_by_fees = int(
             math.log(upper / lower) / math.log(1 + required_bps / 1e4)
         ) + 1
@@ -303,7 +312,48 @@ def propose(
         )
         ceiling = min(max_by_fees, max_by_notional, 20)
 
-        for levels in range(ceiling, 1, -1):
+        tuned: tuple[int, str, str] | None = None
+        if prices is not None and ceiling >= 2:
+            probe_grid = replace(
+                probe,
+                levels=min(ceiling, 20),
+                leverage=max_leverage,
+            )
+            rows = sweep(
+                probe_grid, prices, level_counts=range(2, min(ceiling, 20) + 1)
+            )
+            winner = best_row(rows)
+            if winner is not None and winner.result is not None:
+                caveat = ""
+                if winner.result.cycles < 3:
+                    caveat = (
+                        f" Treat this as weak evidence: only "
+                        f"{winner.result.cycles} cycle(s) completed, so the window "
+                        "was trending rather than ranging and the ranking rests on "
+                        "very few trades."
+                    )
+                elif winner.result.breakout_bar is not None:
+                    caveat = (
+                        f" Note the grid broke out at bar "
+                        f"{winner.result.breakout_bar} of {winner.result.bars}, so "
+                        "the simulation stopped there."
+                    )
+                tuned = (
+                    winner.levels,
+                    winner.spacing,
+                    f"best of {len([r for r in rows if r.gates_passed])} "
+                    f"configurations simulated over {winner.result.bars} bars of "
+                    f"this market: ${winner.result.cycle_edge_usd:,.2f} of cycling "
+                    f"edge across {winner.result.cycles} cycles, worst drawdown "
+                    f"{winner.result.worst_drawdown_pct:.1f}%." + caveat,
+                )
+
+        level_order = (
+            [tuned[0]] + [n for n in range(ceiling, 1, -1) if n != tuned[0]]
+            if tuned
+            else list(range(ceiling, 1, -1))
+        )
+        for levels in level_order:
             for leverage in (max_leverage, 1.0):
                 candidate = GridConfig(
                     market=market,
@@ -311,7 +361,9 @@ def propose(
                     lower=lower,
                     upper=upper,
                     levels=levels,
-                    spacing="geometric",
+                    spacing=(
+                        tuned[1] if tuned and levels == tuned[0] else "geometric"
+                    ),
                     capital_usd=capital_usd,
                     leverage=leverage,
                     breakout="halt_close",
@@ -336,14 +388,26 @@ def propose(
                     ),
                     "levels": (
                         levels,
-                        f"the most levels that still clear {required_bps:.1f} bps "
-                        f"of round-trip fee coverage and HL's "
-                        f"${MIN_ORDER_USD_NOTIONAL:.0f} minimum per order.",
+                        tuned[2]
+                        if tuned and levels == tuned[0]
+                        else (
+                            f"the most levels that still clear {required_bps:.1f} "
+                            f"bps of round-trip cost — "
+                            f"{candidate.fee_cost_bps:.1f} bps fees plus "
+                            f"{candidate.funding_cost_bps:.1f} bps funding — and "
+                            f"HL's ${MIN_ORDER_USD_NOTIONAL:.0f} minimum per "
+                            "order. Nothing simulated whether a different count "
+                            "would do better; pass a price series to tune it."
+                        ),
                     ),
                     "spacing": (
-                        "geometric",
-                        "equal percentage gaps, so the bottom of the range is not "
-                        "spaced more tightly than the top.",
+                        candidate.spacing,
+                        "chosen by simulation over this market's recent prices."
+                        if tuned and levels == tuned[0]
+                        else (
+                            "equal percentage gaps, so the bottom of the range is "
+                            "not spaced more tightly than the top."
+                        ),
                     ),
                     "capital_usd": (capital_usd, "as asked."),
                     "leverage": (

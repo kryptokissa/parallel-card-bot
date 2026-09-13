@@ -35,10 +35,10 @@ It never changes which numbers are allowed.
 
 `start` places nothing unless all of these pass:
 
-- the mark sits inside the range
+- the mark sits inside the range, and not on a bound
 - rungs are distinct after snapping to the venue's tick grid, and every order
   clears HL's $10 minimum
-- the tightest gap clears round-trip fees with margin
+- the tightest gap clears a round trip's full cost — fees **and** funding
 - fully loaded at the worst edge, equity still covers maintenance margin
 - fully loaded at the worst edge, the drawdown is within your limit
 
@@ -46,12 +46,44 @@ The last one usually binds first. Hyperliquid holds roughly 2% maintenance
 margin, so a grid can sit far from liquidation while having given back most of
 the capital behind it; a liquidation check alone would wave that through.
 
+Funding is in the cost gate because a grid holds inventory and a perp charges
+for every hour of it. At default rates a round trip costs about 14 bps — 13 of
+fees, including a 5 bps builder fee per side, and 1 of funding over an eight-hour
+hold. Spacing tighter than that loses money on every cycle that works.
+
+## Tuning
+
+The gates prove a grid is not guaranteed to lose. They do not say which shape is
+best, so:
+
+```
+sweep     rank level counts and both spacings over a recent price series
+simulate  walk one configuration through that series
+```
+
+Ranked by **cycling edge** — profit from completed round trips, after costs —
+rather than net PnL. Net PnL includes the leftover inventory's mark-to-market,
+so over a trending window it rewards a grid for having been accidentally long.
+The output separates cycling, inventory, and any profit from flattening at a
+breakout, and it flags a winner that rests on only one or two cycles.
+
+It is a comparison between configurations over one series. It is not a forecast.
+
+## The daily loss limit
+
+Optional, and enforced rather than advertised: set it and every `step` requires
+the account equity the exchange reports. The day's loss is measured from the
+equity that UTC day opened at, so fills, fees and funding are all already in the
+number. Hit it and the grid cancels its rungs and stops; recovering equity does
+not restart it.
+
 ## Running it
 
 ```
 questions                   what to ask
 propose                     a concrete grid, when you delegate
 gates                       dry run, touches nothing
+simulate / sweep            tune the shape against real prices
 start                       validate, clamp, gate, place the rungs
 step                        refill fills, cancel strays, act on a breakout
 state                       what it thinks, and which save file it read

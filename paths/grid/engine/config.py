@@ -46,6 +46,18 @@ DEFAULT_FEE_BPS_PER_SIDE = 6.5
 # conservative here; the buffer gate multiplies it further.
 DEFAULT_MAINTENANCE_MARGIN_FRACTION = 0.02
 
+# Funding, as a signed per-hour fraction of notional. The SDK's convention:
+# `cashflow = -position * mid * funding_rate`, so a positive rate means longs
+# pay (core/perps/handlers/backtest.py), and rates are per hour
+# (core/perps/reconciler.py). 1.25e-5/hour is roughly 11% a year, typical for a
+# major. Pass the observed rate from `MarketHandler.funding(symbol)` instead of
+# relying on this.
+DEFAULT_FUNDING_RATE_PER_HOUR = 1.25e-5
+
+# How long a rung's inventory is expected to sit before the opposite rung fills
+# and closes the cycle. Funding is charged for this long.
+DEFAULT_EXPECTED_HOLD_HOURS = 8.0
+
 
 @dataclass(frozen=True)
 class GridConfig:
@@ -73,6 +85,9 @@ class GridConfig:
 
     # --- gate parameters -------------------------------------------------
     fee_bps_per_side: float = DEFAULT_FEE_BPS_PER_SIDE
+    # Signed, per hour, as a fraction of notional. See the constant above.
+    funding_rate_per_hour: float = DEFAULT_FUNDING_RATE_PER_HOUR
+    expected_hold_hours: float = DEFAULT_EXPECTED_HOLD_HOURS
     maintenance_margin_fraction: float = DEFAULT_MAINTENANCE_MARGIN_FRACTION
     # Required equity-to-maintenance ratio at the worst point in the range.
     # A hard gate, not a preference (BUILDING_PATHS.md §4.4).
@@ -91,6 +106,32 @@ class GridConfig:
 
     # --- optional stops --------------------------------------------------
     daily_loss_limit_usd: float | None = None
+
+    @property
+    def fee_cost_bps(self) -> float:
+        """Exchange and builder fees for one completed round trip."""
+        return 2.0 * self.fee_bps_per_side
+
+    @property
+    def funding_cost_bps(self) -> float:
+        """Funding charged against a rung's inventory over one cycle.
+
+        The magnitude is used, not the signed value. A grid holds long inventory
+        below the mark and short inventory above it over its life, so whether the
+        current sign happens to favour the side it is holding now is not
+        something a floor should depend on.
+        """
+        return abs(self.funding_rate_per_hour) * self.expected_hold_hours * 1e4
+
+    @property
+    def round_trip_cost_bps(self) -> float:
+        """Everything a completed cycle costs, in basis points of notional."""
+        return self.fee_cost_bps + self.funding_cost_bps
+
+    @property
+    def required_spacing_bps(self) -> float:
+        """The tightest gap that is worth trading."""
+        return self.round_trip_cost_bps * self.min_fee_coverage
 
     def required_fields_missing(self) -> list[str]:
         """Fields with no safe default that the interview must still fill."""
@@ -138,6 +179,8 @@ class GridConfig:
             raise ValueError(f"leverage must be within (0, {MAX_LEVERAGE}]")
         if self.fee_bps_per_side < 0:
             raise ValueError("fee_bps_per_side cannot be negative")
+        if self.expected_hold_hours < 0:
+            raise ValueError("expected_hold_hours cannot be negative")
         if not 0.0 <= self.maintenance_margin_fraction < 1.0:
             raise ValueError("maintenance_margin_fraction must be within [0, 1)")
         if self.min_liquidation_buffer < 1.0:

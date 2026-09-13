@@ -35,6 +35,16 @@ from engine.config import GridConfig, resolve
 from engine.interview import QUESTIONS, Interview, propose, ready_to_start
 from engine.levels import GridGeometryError
 from engine.reconcile import reconcile
+from engine.simulate import best as best_row
+from engine.simulate import simulate, sweep
+from engine.risk import (
+    assess as assess_daily_loss,
+)
+from engine.risk import (
+    position_action_on_stop,
+    requires_equity,
+    roll_day,
+)
 
 WALLET_PLACEHOLDER = "<your grid wallet label>"
 
@@ -131,6 +141,26 @@ def _load_json_arg(raw: str | None) -> Any:
     )
 
 
+def _load_price_series(raw: str | None) -> list[Any] | None:
+    """Read a price series: a bare list, or an object with a `bars` key.
+
+    Accepts floats, (high, low, close) triples, or Hyperliquid candle dicts —
+    whatever `engine.simulate.Bar.of` understands.
+    """
+    if not raw:
+        return None
+    loaded = _load_json_arg(raw)
+    if isinstance(loaded, list):
+        series = loaded
+    elif isinstance(loaded, dict):
+        series = loaded.get("bars") or loaded.get("prices") or []
+    else:
+        raise ValueError("a price series must be a list, or carry a 'bars' key")
+    if not series:
+        raise ValueError("the price series is empty")
+    return series
+
+
 def _interview_from_answers(answers: dict[str, Any]) -> Interview:
     """Build an interview from `{key: value}` or `{key: {value, source, ...}}`."""
     interview = Interview()
@@ -196,6 +226,7 @@ def cmd_questions(_: argparse.Namespace) -> int:
 
 def cmd_propose(args: argparse.Namespace) -> int:
     try:
+        prices = _load_price_series(args.prices)
         proposal = propose(
             market=args.market,
             sz_decimals=args.sz_decimals,
@@ -203,8 +234,9 @@ def cmd_propose(args: argparse.Namespace) -> int:
             capital_usd=args.capital,
             volatility_pct=args.volatility,
             max_leverage=args.max_leverage,
+            prices=prices,
         )
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
         return _fail(str(exc))
     return _emit(
         {
@@ -307,6 +339,32 @@ def cmd_step(args: argparse.Namespace) -> int:
             }
         )
 
+    # A configured daily loss limit has to be measurable, or it is decoration.
+    if requires_equity(config) and args.equity is None:
+        return _fail(
+            "this grid has a daily loss limit, so --equity is required: pass the "
+            "account value the exchange reports, and the limit is measured "
+            "against the equity the day opened at",
+            save_file=state.store_path,
+        )
+
+    daily = None
+    if args.equity is not None:
+        rolled = roll_day(
+            stored_day=state.day,
+            stored_open_equity=state.day_open_equity,
+            equity=args.equity,
+        )
+        if rolled.day != state.day or state.day_open_equity != rolled.open_equity:
+            state.day = rolled.day
+            state.day_open_equity = rolled.open_equity
+            state.log(
+                "day_opened", day=rolled.day, open_equity=rolled.open_equity
+            )
+        daily = assess_daily_loss(
+            config, open_equity=state.day_open_equity, equity=args.equity
+        )
+
     try:
         open_orders = _load_json_arg(args.open_orders)
     except (ValueError, OSError) as exc:
@@ -323,6 +381,32 @@ def cmd_step(args: argparse.Namespace) -> int:
         )
     except GridGeometryError as exc:
         return _fail(str(exc), save_file=state.store_path)
+
+    if daily is not None and daily.breached:
+        stop = plan_mod.plan_daily_stop(
+            config,
+            args.mark,
+            resting_cloids=set(recon.resting),
+            position_size=args.position,
+            position_action=position_action_on_stop(config),
+            detail=daily.summary() + ".",
+        )
+        state.halted = True
+        state.halt_reason = stop.summary
+        state.log(
+            "halted",
+            reason="daily_loss_limit",
+            loss=daily.loss,
+            limit=daily.limit,
+            equity=daily.equity,
+            open_equity=daily.open_equity,
+        )
+        store_mod.save(state, path)
+        payload = _plan_payload(stop, config.market)
+        payload["reconciliation"] = recon.summary()
+        payload["daily_loss"] = daily.summary()
+        payload["save_file"] = state.store_path
+        return _emit(payload)
 
     grid_plan = plan_mod.plan(
         config,
@@ -352,6 +436,8 @@ def cmd_step(args: argparse.Namespace) -> int:
 
     payload = _plan_payload(grid_plan, config.market)
     payload["reconciliation"] = recon.summary()
+    if daily is not None:
+        payload["daily_loss"] = daily.summary()
 
     if grid_plan.breakout == "recenter":
         recentred = plan_mod.recentred_config(config, args.mark)
@@ -408,6 +494,8 @@ def cmd_state(args: argparse.Namespace) -> int:
             "halted": state.halted,
             "halt_reason": state.halt_reason,
             "recenters_used": state.recenters_used,
+            "day": state.day,
+            "day_open_equity": state.day_open_equity,
             "provenance": state.provenance,
             "adjustments": state.adjustments,
             "config": state.config,
@@ -444,6 +532,107 @@ def cmd_gates(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_simulate(args: argparse.Namespace) -> int:
+    """Walk a price series through one configuration. Touches no state."""
+    try:
+        answers = _load_json_arg(args.answers)
+        prices = _load_price_series(args.prices)
+    except (ValueError, OSError) as exc:
+        return _fail(str(exc))
+    if prices is None:
+        return _fail("--prices is required")
+
+    config = resolve(_interview_from_answers(answers).to_config()).config
+    try:
+        config.validate()
+        outcome = simulate(config, prices, hours_per_bar=args.hours_per_bar)
+    except (ValueError, GridGeometryError) as exc:
+        return _fail(str(exc))
+    return _emit(
+        {
+            "summary": outcome.summary(),
+            "bars": outcome.bars,
+            "cycles": outcome.cycles,
+            "cycle_edge_usd": round(outcome.cycle_edge_usd, 2),
+            "unrealized_pnl_usd": round(outcome.unrealized_pnl_usd, 2),
+            "exit_pnl_usd": round(outcome.exit_pnl_usd, 2),
+            "net_pnl_usd": round(outcome.net_pnl_usd, 2),
+            "fees_paid_usd": round(outcome.fees_paid_usd, 2),
+            "funding_paid_usd": round(outcome.funding_paid_usd, 2),
+            "worst_drawdown_pct": round(outcome.worst_drawdown_pct, 2),
+            "breakout_bar": outcome.breakout_bar,
+            "breakout_action": outcome.breakout_action,
+            "caveat": (
+                "A comparison between configurations over this series, not a "
+                "forecast. Fills assume a resting order always fills when price "
+                "reaches its level."
+            ),
+        }
+    )
+
+
+def cmd_sweep(args: argparse.Namespace) -> int:
+    """Simulate many level counts over a series and rank them. Touches no state."""
+    try:
+        answers = _load_json_arg(args.answers)
+        prices = _load_price_series(args.prices)
+    except (ValueError, OSError) as exc:
+        return _fail(str(exc))
+    if prices is None:
+        return _fail("--prices is required")
+
+    config = resolve(_interview_from_answers(answers).to_config()).config
+    try:
+        config.validate()
+        rows = sweep(
+            config,
+            prices,
+            level_counts=range(2, args.max_levels + 1),
+            hours_per_bar=args.hours_per_bar,
+        )
+    except (ValueError, GridGeometryError) as exc:
+        return _fail(str(exc))
+
+    winner = best_row(rows)
+    return _emit(
+        {
+            "ranked": [
+                {
+                    "levels": row.levels,
+                    "spacing": row.spacing,
+                    "gates_passed": row.gates_passed,
+                    "cycles": row.result.cycles if row.result else None,
+                    "cycle_edge_usd": (
+                        round(row.result.cycle_edge_usd, 2) if row.result else None
+                    ),
+                    "net_pnl_usd": (
+                        round(row.result.net_pnl_usd, 2) if row.result else None
+                    ),
+                    "worst_drawdown_pct": (
+                        round(row.result.worst_drawdown_pct, 2) if row.result else None
+                    ),
+                    "reason": row.reason,
+                }
+                for row in rows
+            ],
+            "best": (
+                {
+                    "levels": winner.levels,
+                    "spacing": winner.spacing,
+                    "summary": winner.result.summary(),
+                }
+                if winner and winner.result
+                else None
+            ),
+            "ranked_by": (
+                "cycling edge, which excludes leftover inventory and any profit "
+                "from flattening at a breakout — over a trending window net PnL "
+                "would reward a grid for having been accidentally long"
+            ),
+        }
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="grid", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -460,6 +649,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--volatility", type=float, default=None,
                    help="recent move as a percentage; sizes the range")
     p.add_argument("--max-leverage", type=float, default=1.0, dest="max_leverage")
+    p.add_argument("--prices", default=None,
+                   help="recent price series for this market (inline JSON or a "
+                        "file); tunes the level count by simulation instead of "
+                        "taking the most rungs that merely clear the gates")
     p.set_defaults(func=cmd_propose)
 
     p = sub.add_parser("start", help="validate, gate, and place the rungs")
@@ -477,6 +670,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--open-orders", default="[]", dest="open_orders",
                    help="inline JSON or a path to JSON: the venue's open orders")
     p.add_argument("--position", type=float, default=0.0)
+    p.add_argument("--equity", type=float, default=None,
+                   help="account value the exchange reports; required when a "
+                        "daily loss limit is configured")
     p.set_defaults(func=cmd_step)
 
     p = sub.add_parser("state", help="what the grid thinks, and which file it read")
@@ -487,6 +683,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--answers", required=True)
     p.add_argument("--mark", type=float, required=True)
     p.set_defaults(func=cmd_gates)
+
+    p = sub.add_parser("simulate", help="walk a price series through one grid")
+    p.add_argument("--answers", required=True)
+    p.add_argument("--prices", required=True)
+    p.add_argument("--hours-per-bar", type=float, default=1.0,
+                   dest="hours_per_bar")
+    p.set_defaults(func=cmd_simulate)
+
+    p = sub.add_parser("sweep", help="rank level counts over a price series")
+    p.add_argument("--answers", required=True)
+    p.add_argument("--prices", required=True)
+    p.add_argument("--max-levels", type=int, default=20, dest="max_levels")
+    p.add_argument("--hours-per-bar", type=float, default=1.0,
+                   dest="hours_per_bar")
+    p.set_defaults(func=cmd_sweep)
 
     return parser
 

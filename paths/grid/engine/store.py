@@ -51,6 +51,9 @@ class GridState:
     recenters_used: int = 0
     halted: bool = False
     halt_reason: str = ""
+    # UTC day and the equity it opened at, for the daily loss limit.
+    day: str = ""
+    day_open_equity: float = 0.0
     events: list[dict[str, Any]] = field(default_factory=list)
     store_path: str = ""
 

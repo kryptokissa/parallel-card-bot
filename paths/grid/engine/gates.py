@@ -12,9 +12,12 @@ Three gates:
 - **Geometry.** The levels must be representable on this market: distinct
   after tick snapping, each order above HL's $10 minimum, each size at least
   one lot.
-- **Fee coverage.** The tightest post-snap gap must clear a round trip's fees
-  by `min_fee_coverage`. Spacing below cost loses money on every successful
-  cycle (§4.3), which is the failure mode that looks like it is working.
+- **Cost coverage.** The tightest post-snap gap must clear a round trip's full
+  cost by `min_fee_coverage`. That cost is fees *and* funding: a grid holds
+  inventory, and a perp charges funding every hour it is held, so fees alone
+  understate what a cycle costs. Spacing below cost loses money on every
+  successful cycle (§4.3), which is the failure mode that looks like it is
+  working.
 - **Liquidation buffer.** Fully loaded at the far edge of the range, equity
   must still exceed maintenance margin by `min_liquidation_buffer`. On a perp a
   breakout is not merely an unwanted position, it is a liquidation (§4.4).
@@ -72,29 +75,33 @@ def _geometry_gate(config: GridConfig, mark_price: float) -> GateResult:
     )
 
 
-def _fee_gate(config: GridConfig) -> GateResult:
+def _cost_gate(config: GridConfig) -> GateResult:
     try:
         gaps = spacing_bps(config)
     except GridGeometryError as exc:
-        return GateResult("fee_coverage", False, f"spacing unavailable: {exc}")
+        return GateResult("cost_coverage", False, f"spacing unavailable: {exc}")
 
-    round_trip_bps = 2.0 * config.fee_bps_per_side
-    required = round_trip_bps * config.min_fee_coverage
+    round_trip_bps = config.round_trip_cost_bps
+    required = config.required_spacing_bps
     tightest = min(gaps)
+    breakdown = (
+        f"{config.fee_cost_bps:.1f} bps fees + {config.funding_cost_bps:.1f} bps "
+        f"funding over {config.expected_hold_hours:g}h"
+    )
     if tightest < required:
         return GateResult(
-            "fee_coverage",
+            "cost_coverage",
             False,
             f"tightest gap is {tightest:.1f} bps; a round trip costs "
-            f"{round_trip_bps:.1f} bps and the grid requires "
+            f"{round_trip_bps:.1f} bps ({breakdown}) and the grid requires "
             f"{config.min_fee_coverage}x that ({required:.1f} bps). "
             f"Widen the range or cut the level count.",
         )
     return GateResult(
-        "fee_coverage",
+        "cost_coverage",
         True,
         f"tightest gap {tightest:.1f} bps clears {required:.1f} bps "
-        f"({tightest / round_trip_bps:.1f}x round-trip cost)",
+        f"({tightest / round_trip_bps:.1f}x round-trip cost: {breakdown})",
     )
 
 
@@ -232,10 +239,28 @@ def _mark_in_range_gate(config: GridConfig, mark_price: float) -> GateResult:
             f"({config.lower:,.2f}–{config.upper:,.2f}). Move the range around "
             "current price, or wait for price to come back into it.",
         )
+    # Sitting exactly on a bound is inside the range but still one-sided: at the
+    # lower bound every rung is a sell and the grid has nothing to buy with.
+    try:
+        levels = build_levels(config, mark_price)
+    except GridGeometryError as exc:
+        return GateResult("mark_in_range", False, f"unavailable: {exc}")
+    buys = sum(1 for level in levels if level.side == "buy")
+    sells = len(levels) - buys
+    if not buys or not sells:
+        missing = "buy" if not buys else "sell"
+        return GateResult(
+            "mark_in_range",
+            False,
+            f"the mark {mark_price:,.2f} sits on the edge of "
+            f"({config.lower:,.2f}–{config.upper:,.2f}), so the grid would have no "
+            f"{missing} rungs at all. Centre the range on current price.",
+        )
     return GateResult(
         "mark_in_range",
         True,
-        f"mark {mark_price:,.2f} sits inside {config.lower:,.2f}–{config.upper:,.2f}",
+        f"mark {mark_price:,.2f} sits inside {config.lower:,.2f}–{config.upper:,.2f} "
+        f"with {buys} buy and {sells} sell rungs",
     )
 
 
@@ -245,7 +270,7 @@ def evaluate(config: GridConfig, mark_price: float) -> GateReport:
         results=[
             _mark_in_range_gate(config, mark_price),
             _geometry_gate(config, mark_price),
-            _fee_gate(config),
+            _cost_gate(config),
             _liquidation_gate(config, mark_price),
             _drawdown_gate(config, mark_price),
         ]

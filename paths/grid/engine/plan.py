@@ -266,6 +266,58 @@ def plan_breakout(
     )
 
 
+def plan_daily_stop(
+    config: GridConfig,
+    mark_price: float,
+    *,
+    resting_cloids: set[str],
+    position_size: float = 0.0,
+    position_action: str = "halt_hold",
+    detail: str = "",
+) -> GridPlan:
+    """Stop the grid because the day's loss limit was hit, not because price moved.
+
+    Cancels every rung. The position is then handled by the action the user
+    already chose for a stopped grid, rather than a second policy they were never
+    asked about.
+    """
+    intents = [
+        OrderIntent(
+            action="cancel",
+            cloid=cloid,
+            reason="daily loss limit — cancelling rung",
+        )
+        for cloid in sorted(resting_cloids)
+    ]
+    if position_action == "halt_close" and position_size != 0:
+        close_side: Side = "sell" if position_size > 0 else "buy"
+        intents.append(
+            OrderIntent(
+                action="place",
+                side=close_side,
+                price=mark_price,
+                size=abs(position_size),
+                reduce_only=True,
+                cloid="grid-flatten",
+                reason="daily loss limit — flatten the position",
+            )
+        )
+        tail = f"Position of {position_size:+g} flattened."
+    elif position_size != 0:
+        tail = (
+            f"Position of {position_size:+g} held — it is directional and "
+            "unhedged until you act on it."
+        )
+    else:
+        tail = "No position open."
+    return GridPlan(
+        status="halted",
+        breakout="daily_loss_limit",
+        summary=f"{detail} Rungs cancelled. {tail}".strip(),
+        intents=intents,
+    )
+
+
 def recentred_config(config: GridConfig, mark_price: float) -> GridConfig:
     """The config for a grid rebuilt around `mark_price`, span preserved.
 

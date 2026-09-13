@@ -69,15 +69,42 @@ who proposes a number; it never changes which numbers are allowed.
 
 If the user changes any value, that value is `source: "user"`.
 
+## Tuning, before you commit to a shape
+The gates only prove a grid is not guaranteed to lose. They say nothing about
+whether ten rungs beat six, which is what decides how it performs.
+
+- `sweep --answers <json> --prices <series>` simulates level counts and both
+  spacings over recent prices and ranks them.
+- `simulate --answers <json> --prices <series>` walks one configuration.
+- `propose --prices <series>` picks the level count by simulation instead of
+  taking the most rungs that merely clear the gates.
+
+A series is a list of Hyperliquid candles, `(high, low, close)` triples, or bare
+closes — candles are much better, because a grid earns from exactly the wicks a
+close hides.
+
+Results are ranked by **cycling edge**, not net PnL. Net PnL includes whatever
+the leftover inventory is worth, so over a trending window it rewards a grid for
+having been accidentally long rather than for gridding well. Read the cycle count
+too: a winner with one or two cycles is a coincidence, not evidence, and the
+output says so when that happens.
+
+This is a comparison between configurations over one series. It is not a
+forecast, and you should not present it as one.
+
 ## What you cannot talk the grid past
 `start` runs hard gates and places nothing if any fails. They apply the same
 way to a number the user chose and a number you proposed:
 
-- **mark_in_range** — price must be inside the range being built.
+- **mark_in_range** — price must be inside the range being built, and not
+  sitting on a bound: at the lower bound every rung is a sell and the grid has
+  nothing to buy with.
 - **geometry** — rungs must be distinct after tick snapping, each order above
   $10, each size at least one lot.
-- **fee_coverage** — the tightest gap must clear a round trip's fees with
-  margin. Tighter spacing loses money on every successful cycle.
+- **cost_coverage** — the tightest gap must clear a round trip's full cost with
+  margin. That cost is fees *and* funding: the grid holds inventory, and a perp
+  charges funding for every hour it is held, so fees alone understate a cycle.
+  Tighter spacing loses money on every successful cycle.
 - **liquidation_buffer** — fully loaded at the worst edge, equity must still
   cover maintenance margin several times over.
 - **edge_drawdown** — fully loaded at the worst edge, the grid must be down no
@@ -97,6 +124,19 @@ When a gate fails, relay its text. Each one names what to change.
   breakout. Run it after fills and on a schedule.
 - `state --market <m>` — what the grid thinks, and which save file it read.
 - `gates --answers <json> --mark <price>` — dry run, touches nothing.
+- `simulate` / `sweep` — see above; neither touches state.
+
+### The daily loss limit
+If the user sets `daily_loss_limit_usd`, **every `step` needs `--equity`**: pass
+the account value the exchange reports. The limit is measured against the equity
+the UTC day opened at, which is why equity rather than your own tally — it
+already contains fills, fees and funding.
+
+The path refuses to step without it rather than continuing with a limit it
+cannot measure. When the limit is hit the grid cancels every rung, stops, and
+handles the position with the choice already made for `breakout` — except
+`recenter`, which degrades to holding, because rebuilding a grid after hitting a
+loss limit is chasing the loss. Recovering equity does not restart it.
 
 Read positions and open orders from the exchange every time. The exchange is
 the truth for state; the path's log is the truth for intent. Never tell `step`
