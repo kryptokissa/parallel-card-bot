@@ -1,0 +1,5 @@
+# Tests moved out of paths/the-marsh/ so they would stop shipping in the
+# published bundle, which left them outside that directory's .gitignore.
+# Sixteen .pyc files were tracked before this landed.
+__pycache__/
+.pytest_cache/

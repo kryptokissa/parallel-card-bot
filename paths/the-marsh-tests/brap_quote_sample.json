@@ -1,0 +1,34 @@
+{
+  "best_quote": {
+    "provider": "jupiter",
+    "quote": {
+      "inputMint": "So11111111111111111111111111111111111111112",
+      "outputMint": "CYAQyGC9Nc9RV5MiSiJxdE8utWZtdjtt3tKe1Uvjpump",
+      "inAmount": 10000000,
+      "outAmount": 4697759284,
+      "inUsdValue": 1.0337028517409823,
+      "outUsdValue": 1.022264148989427,
+      "priceImpact": -1.1065755243191933,
+      "priceImpactPct": "-0.011065755243191932",
+      "slippageBps": 300
+    },
+    "calldata": {
+      "chainId": 900,
+      "chainType": "solana",
+      "serializedTransaction": "BASE64_PLACEHOLDER"
+    },
+    "output_amount": 4697759284,
+    "input_amount": 10000000,
+    "input_amount_usd": 1.0345,
+    "output_amount_usd": 1.0086963722314068,
+    "output_validation": {
+      "chain_id": 900,
+      "address": "CYAQyGC9Nc9RV5MiSiJxdE8utWZtdjtt3tKe1Uvjpump",
+      "symbol": "MEMESTONK",
+      "decimals": 6,
+      "price_usd": 0.0002147186161,
+      "liquidity_usd": 30496.945324722987
+    },
+    "safety_warnings": null
+  }
+}
