@@ -1,0 +1,16 @@
+{
+  "template": "basic",
+  "template_version": "0.1.0",
+  "created_with": "wayfinder-paths",
+  "created_at": "2026-09-13T08:47:27.109539Z",
+  "answers": {
+    "slug": "grid",
+    "name": "Grid",
+    "version": "0.1.0",
+    "primary_kind": "strategy",
+    "archetype": null,
+    "with_applet": true,
+    "with_skill": true,
+    "component_path": "strategy.py"
+  }
+}
