@@ -138,10 +138,13 @@ dog didn't ask for. The gates are the product.
 
 ## Before real money
 Run `preflight` and read it out to the hunter before they fund
-anything. It answers three separate questions — whether the runtime
-can broadcast at all, whether a satchel wallet is configured, and who
-holds trade authority — and exits non-zero unless the first two pass.
-Never read a single line of it as "cleared to trade".
+anything. It answers three separate questions — whether there is an
+API key to scout and price with, whether a satchel wallet the runner
+can resolve exists, and whether this wrapper could broadcast — and
+exits non-zero unless the first two pass. The third never gates: the
+pack decides and the hunter's agent executes, so the published
+runtime's missing svm modules stop nothing. Never read a single line
+of it as "cleared to trade".
 
 ### Wallets
 Nothing here depends on a wallet being called anything. Labels are

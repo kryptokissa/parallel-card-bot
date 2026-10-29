@@ -332,18 +332,22 @@ def _configured_wallets() -> tuple[list[str], str]:
 
 
 def cmd_preflight(args) -> None:
-    """Can this runtime actually take a live shot? Answered honestly.
+    """Can a live shot happen at all? Answered honestly.
 
     Three separate questions, because passing one says nothing about
     the others, and a hunter reading a single "ready" would be right
     to assume it meant all three:
 
-      1. can the runtime broadcast a Solana transaction at all
-      2. is there a satchel wallet for it to spend from
-      3. does the caller have trade authority
+      1. is there an API key, so the marsh can be scouted and priced
+      2. is there a satchel wallet for the shot to spend from
+      3. can this wrapper broadcast the transaction itself
 
-    The third is always no from here: this wrapper never receives the
-    signing callback, by design. Live shots run under the host runner.
+    Only the first two gate. The third is reported and deliberately
+    does not: since the pack decides and the hunter's agent executes,
+    the shot is broadcast by ``onchain_swap`` under the agent, never
+    from here. Gating on it would refuse a hunt the agent can take --
+    the same overstatement as the first version, pointed the other
+    way, and just as likely to be believed.
     """
     from engine.executor import solana_submission_available
 
@@ -356,32 +360,42 @@ def cmd_preflight(args) -> None:
           f"{'yes' if have_key else 'no API key set'}")
     print("     Practice range:           yes, always")
 
-    if can_send:
-        print("     Runtime can broadcast:    yes")
-    else:
-        print(f"     Runtime can broadcast:    NO - {reason}")
-
     if labels:
         print(f"     Satchel wallet:           {len(labels)} configured "
               f"({', '.join(sorted(labels))}) via {source}")
     else:
         print(f"     Satchel wallet:           none found - {source}")
 
+    if can_send:
+        print("     Broadcast from here:      able to, but never does")
+    else:
+        print(f"     Broadcast from here:      no - {reason}")
+    print("     Broadcast is not a blocker: your agent does it.")
+
     print()
     print("     This wrapper cannot take a live shot in any case: it")
     print("     holds no keys and is never given the host runner's")
-    print("     signing callback. Live shots run under the runner,")
-    print("     with a satchel you have authorised there.")
+    print("     signing callback. The pack decides the shot; your")
+    print("     agent executes it with onchain_swap, from a satchel")
+    print("     you have authorised there.")
 
-    if not can_send or not labels:
+    blockers = []
+    if not have_key:
+        blockers.append("no API key, so the marsh cannot even be scouted")
+    if not labels:
+        blockers.append("no satchel wallet the runner can resolve")
+    if blockers:
         print()
+        for b in blockers:
+            print(f"     Blocked: {b}.")
         print("     Not ready for real money. Do not fund a satchel yet.")
         raise SystemExit(2)
 
     print()
-    print("     Runtime and satchel both look ready. Nothing here has")
-    print("     ever moved real funds, so make the first live shot a")
-    print("     token one (~0.01) and watch it settle before any size.")
+    print("     Key and satchel are both ready, and your agent holds")
+    print("     the authority to fire. Nothing here has ever moved")
+    print("     real funds, so make the first live shot a token one")
+    print("     (~0.01) and watch it settle before any size.")
     raise SystemExit(0)
 
 
