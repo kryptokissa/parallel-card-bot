@@ -275,6 +275,54 @@ wayfinder path update --version <v>                   # pin a public version
 
 ---
 
+## 7a. When the API itself has moved (verified 2026-10-29)
+
+The published SDK lags the live API, and in October the gap became a
+hard break. Confirmed against the live API with a valid key:
+
+| endpoint | SDK 0.11.0/0.11.1 calls | live API |
+|---|---|---|
+| auth header | `X-API-Key` | **401** — needs `x-wayfinder-api-key` |
+| `GET /paths/<slug>/` | works | 200 |
+| `GET /paths/<slug>/versions/<v>` | no trailing slash | **404** — needs `/versions/<v>/` |
+| `GET /paths/<slug>/versions/<v>/bundle.zip` | bundle download | **404**, gone |
+| `POST /paths/<slug>/install-intent/` | install | **404**, gone |
+| `POST /paths/publish/`, `/publish/init/`, `/publish/finalize/` | publish | **404**, gone |
+
+So on a current install: **no released SDK can install or publish a
+path.** `0.11.1` (2026-09-09) is the latest on PyPI and is byte-identical
+to `0.11.0` in all of the above. A GET against a POST-only Django route
+returns 405, not 404 — these returned 404, so the routes are gone, not
+merely method-mismatched.
+
+Read access still works if you bypass the SDK client:
+
+```bash
+curl -sS -H "x-wayfinder-api-key: $WAYFINDER_API_KEY" \
+  https://wayfinder.ai/api/v1/paths/<slug>/versions/<v>/
+```
+
+### Installing anyway, without the API
+
+`wayfinder path build` renders complete, installable skill trees under
+`.build/skills/<host>/<slug>/` — entirely local, no API call. Copy one
+into the host's skills directory and the path runs:
+
+```bash
+cp -r .build/skills/opencode/<slug> ~/.config/opencode/skills/<slug>
+cp -r .build/skills/claude/<slug>   ~/.claude/skills/<slug>
+```
+
+A hand install does not need the version published, which also makes it
+the way to run a fix while publishing is broken.
+
+To confirm a local bundle is bit-identical to a published one, compare
+your `build` sha against `bundle_sha256` in the version record — the
+API still serves that. The Marsh 0.2.1 matched at
+`225fe1b2...b12d313d`, so the repo copy *was* the published artefact.
+
+---
+
 ## 8. One-shot checklist
 
 ```

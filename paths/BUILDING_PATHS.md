@@ -144,6 +144,14 @@ Every time I bound to an SDK client, the shape it expected was a version
 behind what the API returned. Direct calls plus your own small response
 parsers are less code and age better.
 
+By October 2026 this stopped being a style preference. The live API
+changed its auth header and dropped the install, download and publish
+routes the SDK calls, and no SDK release followed — so neither
+`wayfinder path install` nor `wayfinder path publish` works on a current
+install. `PUBLISHING.md` §7a has the verified endpoint table and how to
+install without the API at all. Budget for this: the platform can take
+the ground out from under a working toolchain between sessions.
+
 ### 2.4 The API throws 500s and timeouts
 
 Not rarely. During this build: a bundle download 500, a metadata read
